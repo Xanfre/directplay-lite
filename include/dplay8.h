@@ -20,7 +20,11 @@
 #ifndef __WINE_DPLAY8_H
 #define __WINE_DPLAY8_H
 
+#ifdef _WIN32
 #include <ole2.h>
+#else
+#include <windows.h>
+#endif
 #include <dpaddr.h>
 
 #ifdef __cplusplus
@@ -28,9 +32,9 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 
-typedef HRESULT (WINAPI *PFNDPNMESSAGEHANDLER)(PVOID, DWORD, PVOID);
-typedef DWORD	DPNID, *PDPNID;
-typedef	DWORD	DPNHANDLE, *PDPNHANDLE;
+typedef HRESULT   (WINAPI *PFNDPNMESSAGEHANDLER)(PVOID, DWORD, PVOID);
+typedef DWORD     DPNID, *PDPNID;
+typedef DWORD_PTR DPNHANDLE, *PDPNHANDLE;
 
 /*****************************************************************************
  * DirectPlay8 Message Id
