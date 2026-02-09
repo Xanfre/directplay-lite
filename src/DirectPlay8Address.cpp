@@ -445,7 +445,7 @@ DirectPlay8Address::StringComponentW::StringComponentW(const std::wstring &name,
 
 DirectPlay8Address::Component *DirectPlay8Address::StringComponentW::clone()
 {
-	return new DirectPlay8Address::StringComponentW(name, value.data(), value.length());
+	return new DirectPlay8Address::StringComponentW(name, value.data(), value.length() * sizeof(wchar_t));
 }
 
 HRESULT DirectPlay8Address::StringComponentW::get_component(LPVOID pvBuffer, PDWORD pdwBufferSize, PDWORD pdwDataType)
