@@ -3333,6 +3333,7 @@ void DirectPlay8Peer::io_peer_connected(std::unique_lock<std::mutex> &l, unsigne
 	{
 		log_printf("getsockopt(level = SOL_SOCKET, optname = SO_ERROR) failed");
 		connect_fail(l, DPNERR_GENERIC, NULL, 0);
+		return;
 	}
 	
 	if(error == 0)
