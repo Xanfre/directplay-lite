@@ -16,16 +16,26 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <assert.h>
 #include <atomic>
 #include <dplay8.h>
+#ifdef _WIN32
 #include <objbase.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
 #include <windows.h>
+#ifdef _WIN32
 #include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 
 #include "DirectPlay8Address.hpp"
 #include "Log.hpp"
@@ -343,6 +353,7 @@ HRESULT DirectPlay8Address::AddComponent(CONST WCHAR* CONST pwszName, CONST void
 		{
 			/* DirectX converts ANSI strings to wide on input. */
 			
+#ifdef _WIN32
 			int wide_char_count = MultiByteToWideChar(CP_ACP, 0, (const char*)(lpvData), dwDataSize, NULL, 0);
 			if(wide_char_count == 0)
 			{
@@ -358,6 +369,27 @@ HRESULT DirectPlay8Address::AddComponent(CONST WCHAR* CONST pwszName, CONST void
 			}
 			
 			new_component = new StringComponentW(pwszName, wide_char_buf.data(), wide_char_count * sizeof(wchar_t));
+#else
+			size_t wide_char_count = mbstowcs(NULL, (const char*)(lpvData), 0);
+			if(wide_char_count == (size_t)-1)
+			{
+				return DPNERR_INVALIDPARAM;
+			}
+			else
+			{
+				wide_char_count++;
+			}
+			
+			std::vector<wchar_t> wide_char_buf(wide_char_count);
+			
+			size_t result = mbstowcs(wide_char_buf.data(), (const char*)(lpvData), wide_char_count);
+			if(result == (size_t)-1)
+			{
+				return DPNERR_INVALIDPARAM;
+			}
+			
+			new_component = new StringComponentW(pwszName, wide_char_buf.data(), wide_char_count * sizeof(wchar_t));
+#endif
 			break;
 		}
 		

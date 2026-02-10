@@ -19,7 +19,9 @@
 #ifndef DPLITE_COMAPIEXCEPTION_HPP
 #define DPLITE_COMAPIEXCEPTION_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <exception>
 #include <windows.h>
 

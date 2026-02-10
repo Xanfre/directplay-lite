@@ -32,7 +32,9 @@ struct TLVChunk
 	uint32_t type;
 	uint32_t value_length;
 
+#ifdef _MSC_VER
 #pragma warning(suppress: 4200)
+#endif
 	unsigned char value[0];
 };
 

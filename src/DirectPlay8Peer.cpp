@@ -16,20 +16,30 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <assert.h>
 #include <atomic>
 #include <dplay8.h>
 #include <iterator>
 #include <memory>
 #include <mutex>
+#ifdef _WIN32
 #include <objbase.h>
+#endif
 #include <stdexcept>
 #include <stdint.h>
 #include <stdio.h>
 #include <tuple>
 #include <windows.h>
+#ifdef _WIN32
 #include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#include <sys/random.h>
+#include <sys/select.h>
+#endif
 
 #include "COMAPIException.hpp"
 #include "DirectPlay8Address.hpp"
@@ -37,6 +47,7 @@
 #include "Log.hpp"
 #include "Messages.hpp"
 #include "network.hpp"
+#include "platform.hpp"
 
 #define UNIMPLEMENTED(fmt, ...) \
 	log_printf("Unimplemented: " fmt, ## __VA_ARGS__); \
@@ -128,12 +139,14 @@ HRESULT DirectPlay8Peer::Initialize(PVOID CONST pvUserContext, CONST PFNDPNMESSA
 		return DPNERR_ALREADYINITIALIZED;
 	}
 	
+#ifdef _WIN32
 	WSADATA wd;
 	if(WSAStartup(MAKEWORD(2,2), &wd) != 0)
 	{
 		log_printf("WSAStartup() failed");
 		return DPNERR_GENERIC;
 	}
+#endif
 	
 	message_handler     = pfn;
 	message_handler_ctx = pvUserContext;
@@ -458,7 +471,19 @@ HRESULT DirectPlay8Peer::Connect(CONST DPN_APPLICATION_DESC* CONST pdnAppDesc, I
 		if(host_sp == CLSID_DP8SP_TCPIP)
 		{
 			struct in_addr hostname_addr;
+#ifdef _WIN32
 			if(InetPtonW(AF_INET, hostname_value, &hostname_addr) == 1)
+#else
+			char hostname_narrow[128];
+			size_t converted = wcstombs(hostname_narrow, hostname_value, sizeof(hostname_narrow) - 1);
+			if(converted == (size_t)-1)
+			{
+				return DPNERR_INVALIDHOSTADDRESS;
+			}
+			hostname_narrow[converted] = '\0';
+			
+			if(inet_pton(AF_INET, hostname_narrow, &hostname_addr) == 1)
+#endif
 			{
 				r_ipaddr = hostname_addr.s_addr;
 			}
@@ -531,11 +556,19 @@ HRESULT DirectPlay8Peer::Connect(CONST DPN_APPLICATION_DESC* CONST pdnAppDesc, I
 		 * rand() just in case the application relies on the RNG state.
 		*/
 		
+#ifdef _WIN32
 		LARGE_INTEGER p_counter;
 		QueryPerformanceCounter(&p_counter);
 		
 		int port_range = AUTO_PORT_MAX - AUTO_PORT_MIN;
 		int base_port  = p_counter.QuadPart % port_range;
+#else
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+
+		int port_range = AUTO_PORT_MAX - AUTO_PORT_MIN;
+		int base_port  = ts.tv_nsec % port_range;
+#endif
 		
 		for(int p = AUTO_PORT_MIN; p <= AUTO_PORT_MAX; ++p)
 		{
@@ -593,23 +626,32 @@ HRESULT DirectPlay8Peer::Connect(CONST DPN_APPLICATION_DESC* CONST pdnAppDesc, I
 	connect_handle = (dwFlags & DPNCONNECT_SYNC) ? 0 : handle_alloc.new_connect();
 	
 	state = STATE_CONNECTING_TO_HOST;
-	
+
 	if(!peer_connect(Peer::PS_CONNECTING_HOST, r_ipaddr, r_port))
 	{
 		closesocket(listener_socket);
 		listener_socket = -1;
-		
+
 		closesocket(udp_socket);
 		udp_socket = -1;
-		
+
 		return DPNERR_GENERIC;
 	}
-	
+
+#ifdef _WIN32
 	if(WSAEventSelect(udp_socket, udp_socket_event, FD_READ | FD_WRITE) != 0
 		|| WSAEventSelect(listener_socket, other_socket_event, FD_ACCEPT) != 0)
 	{
 		return DPNERR_GENERIC;
 	}
+#else
+	/* On Linux, monitor the actual sockets for I/O readiness.
+	 * When sockets become ready, their associated eventfds will be signaled.
+	 * Use EPOLLET (edge-triggered) to avoid busy-looping on EPOLLOUT.
+	 */
+	worker_pool->add_socket_monitor(udp_socket, udp_socket_event, EPOLLIN | EPOLLOUT | EPOLLET);
+	worker_pool->add_socket_monitor(listener_socket, other_socket_event, EPOLLIN | EPOLLET);
+#endif
 	
 	if(dwFlags & DPNCONNECT_SYNC)
 	{
@@ -947,11 +989,19 @@ HRESULT DirectPlay8Peer::Host(CONST DPN_APPLICATION_DESC* CONST pdnAppDesc, IDir
 	}
 	
 	/* Generate a random GUID for this session. */
+#ifdef _WIN32
 	HRESULT guid_err = CoCreateGuid(&instance_guid);
 	if(guid_err != S_OK)
 	{
 		return guid_err;
 	}
+#else
+	size_t guid_result = getrandom(&instance_guid, sizeof(instance_guid), 0);
+	if(guid_result == (size_t) -1)
+	{
+		return E_FAIL;
+	}
+#endif
 	
 	application_guid = pdnAppDesc->guidApplication;
 	max_players      = pdnAppDesc->dwMaxPlayers;
@@ -1073,22 +1123,39 @@ HRESULT DirectPlay8Peer::Host(CONST DPN_APPLICATION_DESC* CONST pdnAppDesc, IDir
 		local_ip   = ipaddr;
 		local_port = port;
 	}
-	
+
+#ifdef _WIN32
 	if(WSAEventSelect(udp_socket, udp_socket_event, FD_READ | FD_WRITE) != 0
 		|| WSAEventSelect(listener_socket, other_socket_event, FD_ACCEPT) != 0)
 	{
 		return DPNERR_GENERIC;
 	}
-	
+#else
+	/* On Linux, monitor the actual sockets for I/O readiness.
+	 * When sockets become ready, their associated eventfds will be signaled.
+	 * Use EPOLLET (edge-triggered) to avoid busy-looping on EPOLLOUT.
+	 */
+	worker_pool->add_socket_monitor(udp_socket, udp_socket_event, EPOLLIN | EPOLLOUT | EPOLLET);
+	worker_pool->add_socket_monitor(listener_socket, other_socket_event, EPOLLIN | EPOLLET);
+#endif
+
 	if(!(pdnAppDesc->dwFlags & DPNSESSION_NODPNSVR))
 	{
 		discovery_socket = create_discovery_socket();
-		
+
+#ifdef _WIN32
 		if(discovery_socket == -1
 			|| WSAEventSelect(discovery_socket, other_socket_event, FD_READ) != 0)
+#else
+		if(discovery_socket == -1)
+#endif
 		{
 			return DPNERR_GENERIC;
 		}
+
+#ifndef _WIN32
+		worker_pool->add_socket_monitor(discovery_socket, other_socket_event, EPOLLIN | EPOLLET);
+#endif
 	}
 	
 	next_player_id = 1;
@@ -2621,7 +2688,9 @@ HRESULT DirectPlay8Peer::Close(CONST DWORD dwFlags)
 	
 	destroyed_groups.clear();
 	
+#ifdef _WIN32
 	WSACleanup();
+#endif
 	
 	state = STATE_NEW;
 	
@@ -2682,18 +2751,25 @@ HRESULT DirectPlay8Peer::EnumHosts(PDPN_APPLICATION_DESC CONST pApplicationDesc,
 					{
 						DPNMSG_ASYNC_OP_COMPLETE oc;
 						memset(&oc, 0, sizeof(oc));
-						
+
 						oc.dwSize        = sizeof(oc);
 						oc.hAsyncOp      = handle;
 						oc.pvUserContext = pvUserContext;
 						oc.hResultCode   = r;
-						
+
 						message_handler(message_handler_ctx, DPN_MSGID_ASYNC_OP_COMPLETE, &oc);
-						
-						std::unique_lock<std::mutex> l(lock);
+
+						/* Copy references to locals before erase() destroys the lambda's captures.
+						 * The HostEnumerator stores this callback as complete_cb, and erase()
+						 * destroys the HostEnumerator while we're still executing inside it.
+						 */
+						std::mutex &lock_ref = lock;
+						std::condition_variable &cv_ref = host_enum_completed;
+
+						std::unique_lock<std::mutex> l(lock_ref);
 						async_host_enums.erase(handle);
-						
-						host_enum_completed.notify_all();
+
+						cv_ref.notify_all();
 					}));
 			
 			return DPNSUCCESS_PENDING;
@@ -3133,7 +3209,11 @@ void DirectPlay8Peer::handle_udp_socket_event()
 	}
 	
 	struct sockaddr_in from_addr;
+#ifdef _WIN32
 	int fa_len = sizeof(from_addr);
+#else
+	socklen_t fa_len = sizeof(from_addr);
+#endif
 	
 	unsigned char recv_buf[MAX_PACKET_SIZE];
 	
@@ -3184,7 +3264,11 @@ void DirectPlay8Peer::handle_other_socket_event()
 	if(discovery_socket != -1)
 	{
 		struct sockaddr_in from_addr;
+#ifdef _WIN32
 		int fa_len = sizeof(from_addr);
+#else
+		socklen_t fa_len = sizeof(from_addr);
+#endif
 		
 		unsigned char recv_buf[MAX_PACKET_SIZE];
 		
@@ -3225,12 +3309,16 @@ void DirectPlay8Peer::handle_other_socket_event()
 	}
 	
 	peer_accept(l);
+
+#ifndef _WIN32
+	SIGNAL_EVENT(other_socket_event);
+#endif
 }
 
 void DirectPlay8Peer::queue_work(const std::function<void()> &work)
 {
 	work_queue.push(work);
-	SetEvent(work_ready);
+	SIGNAL_EVENT(work_ready);
 }
 
 void DirectPlay8Peer::handle_work()
@@ -3247,7 +3335,7 @@ void DirectPlay8Peer::handle_work()
 			/* Wake up another thread, in case we are heavily loaded and the pool isn't
 			 * keeping up with the events from queue_work()
 			*/
-			SetEvent(work_ready);
+			SIGNAL_EVENT(work_ready);
 		}
 		
 		l.unlock();
@@ -3292,10 +3380,14 @@ void DirectPlay8Peer::io_udp_send(std::unique_lock<std::mutex> &l)
 		std::pair<const void*, size_t>            data = sqop->get_data();
 		std::pair<const struct sockaddr*, size_t> addr = sqop->get_dest_addr();
 		
+#ifdef _WIN32
 		int s = sendto(udp_socket, (const char*)(data.first), data.second, 0, addr.first, addr.second);
+#else
+		int s = sendto(udp_socket, (const char*)(data.first), data.second, MSG_NOSIGNAL, addr.first, addr.second);
+#endif
 		if(s == -1)
 		{
-			DWORD err = WSAGetLastError();
+			int err = WSAGetLastError();
 			
 			if(err == WSAEWOULDBLOCK)
 			{
@@ -3312,7 +3404,7 @@ void DirectPlay8Peer::io_udp_send(std::unique_lock<std::mutex> &l)
 		/* Wake up another worker to continue dealing with this socket in case we wind up
 		 * blocking for a long time in application code within the callback.
 		*/
-		SetEvent(udp_socket_event);
+		SIGNAL_EVENT(udp_socket_event);
 		
 		/* TODO: More specific error codes */
 		sqop->invoke_callback(l, (s < 0 ? DPNERR_GENERIC : S_OK));
@@ -3325,10 +3417,37 @@ void DirectPlay8Peer::io_peer_connected(std::unique_lock<std::mutex> &l, unsigne
 {
 	Peer *peer = get_peer_by_peer_id(peer_id);
 	assert(peer != NULL);
-	
+
+#ifndef _WIN32
+	/* On Linux, check if the socket is writable to determine if connect() completed.
+	 * On Windows, this is only done when the FD_CONNECT event fires.
+	 */
+	fd_set write_fds;
+	FD_ZERO(&write_fds);
+	FD_SET(peer->sock, &write_fds);
+
+	struct timeval tv = {0, 0};
+	int select_result = select(peer->sock + 1, NULL, &write_fds, NULL, &tv);
+
+	if(select_result == 0)
+	{
+		return;
+	}
+	else if(select_result < 0)
+	{
+		log_printf("select() failed checking connection status");
+		connect_fail(l, DPNERR_GENERIC, NULL, 0);
+		return;
+	}
+#endif
+
 	int error;
+#ifdef _WIN32
 	int esize = sizeof(error);
-	
+#else
+	socklen_t esize = sizeof(error);
+#endif
+
 	if(getsockopt(peer->sock, SOL_SOCKET, SO_ERROR, (char*)(&error), &esize) != 0)
 	{
 		log_printf("getsockopt(level = SOL_SOCKET, optname = SO_ERROR) failed");
@@ -3405,7 +3524,7 @@ void DirectPlay8Peer::io_peer_connected(std::unique_lock<std::mutex> &l, unsigne
 	else{
 		/* TCP connection failed. */
 		
-		log_printf("peer_id %u TCP connection failed: %s", peer_id, win_strerror(error).c_str());
+		log_printf("peer_id %u TCP connection failed: %s", peer_id, SOCKET_STRERROR(error));
 		
 		if(peer->state == Peer::PS_CONNECTING_HOST)
 		{
@@ -3429,11 +3548,15 @@ void DirectPlay8Peer::io_peer_send(std::unique_lock<std::mutex> &l, unsigned int
 		{
 			std::pair<const void*, size_t> d = sqop->get_pending_data();
 			
+#ifdef _WIN32
 			int s = send(peer->sock, (const char*)(d.first), d.second, 0);
+#else
+			int s = send(peer->sock, (const char*)(d.first), d.second, MSG_NOSIGNAL);
+#endif
 			
 			if(s < 0)
 			{
-				DWORD err = WSAGetLastError();
+				int err = WSAGetLastError();
 				
 				if(err == WSAEWOULDBLOCK)
 				{
@@ -3443,7 +3566,7 @@ void DirectPlay8Peer::io_peer_send(std::unique_lock<std::mutex> &l, unsigned int
 				else{
 					/* Write error. */
 					
-					log_printf("Write error on peer %u: %s", peer_id, win_strerror(err).c_str());
+					log_printf("Write error on peer %u: %s", peer_id, SOCKET_STRERROR(err));
 					log_printf("Closing connection");
 					
 					peer_destroy(l, peer_id, DPNERR_CONNECTIONLOST, DPNDESTROYPLAYERREASON_CONNECTIONLOST);
@@ -3464,7 +3587,7 @@ void DirectPlay8Peer::io_peer_send(std::unique_lock<std::mutex> &l, unsigned int
 					 * Wake another worker to dispatch it in case we have to
 					 * block within the application for a while.
 					*/
-					SetEvent(peer->event);
+					SIGNAL_EVENT(peer->event);
 				}
 				
 				sqop->invoke_callback(l, S_OK);
@@ -3481,12 +3604,16 @@ void DirectPlay8Peer::io_peer_send(std::unique_lock<std::mutex> &l, unsigned int
 				 * a hard close once it receives our EOF.
 				*/
 				
+#ifdef _WIN32
 				if(shutdown(peer->sock, SD_SEND) != 0)
+#else
+				if(shutdown(peer->sock, SHUT_WR) != 0)
+#endif
 				{
-					DWORD err = WSAGetLastError();
+					int err = WSAGetLastError();
 					log_printf(
 						"shutdown(SD_SEND) on peer %u failed: %s",
-						peer_id, win_strerror(err));
+						peer_id, SOCKET_STRERROR(err));
 					
 					peer_destroy(l, peer_id, DPNERR_CONNECTIONLOST, DPNDESTROYPLAYERREASON_CONNECTIONLOST);
 					return;
@@ -3520,7 +3647,7 @@ void DirectPlay8Peer::io_peer_recv(std::unique_lock<std::mutex> &l, unsigned int
 		}
 		
 		int r = recv(peer->sock, (char*)(peer->recv_buf) + peer->recv_buf_cur, sizeof(peer->recv_buf) - peer->recv_buf_cur, 0);
-		DWORD err = WSAGetLastError();
+		int err = WSAGetLastError();
 		
 		if(r < 0 && err == WSAEWOULDBLOCK)
 		{
@@ -3554,7 +3681,7 @@ void DirectPlay8Peer::io_peer_recv(std::unique_lock<std::mutex> &l, unsigned int
 		{
 			/* Read error. */
 			
-			log_printf("Read error on peer %u: %s", peer_id, win_strerror(err).c_str());
+			log_printf("Read error on peer %u: %s", peer_id, SOCKET_STRERROR(err));
 			log_printf("Closing connection");
 			
 			peer_destroy(l, peer_id, DPNERR_CONNECTIONLOST, DPNDESTROYPLAYERREASON_CONNECTIONLOST);
@@ -3764,12 +3891,16 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 	}
 	
 	struct sockaddr_in addr;
+#ifdef _WIN32
 	int addrlen = sizeof(addr);
+#else
+	socklen_t addrlen = sizeof(addr);
+#endif
 	
 	int newfd = accept(listener_socket, (struct sockaddr*)(&addr), &addrlen);
 	if(newfd == -1)
 	{
-		DWORD err = WSAGetLastError();
+		int err = WSAGetLastError();
 		
 		if(err == WSAEWOULDBLOCK)
 		{
@@ -3777,10 +3908,14 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 		}
 		else{
 			/* Hopefully this is temporary and doesn't go into a tight loop... */
-			log_printf("Incoming connection failed: %s", win_strerror(err).c_str());
+			log_printf("Incoming connection failed: %s", SOCKET_STRERROR(err));
 			return;
 		}
 	}
+
+#ifndef _WIN32
+	SIGNAL_EVENT(other_socket_event);
+#endif
 	
 	struct linger li;
 	li.l_onoff = 0;
@@ -3788,17 +3923,22 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 	
 	if(setsockopt(newfd, SOL_SOCKET, SO_LINGER, (char*)(&li), sizeof(li)) != 0)
 	{
-		DWORD err = WSAGetLastError();
-		log_printf("Failed to set SO_LINGER parameters on accepted connection: %s", win_strerror(err).c_str());
+		int err = WSAGetLastError();
+		log_printf("Failed to set SO_LINGER parameters on accepted connection: %s", SOCKET_STRERROR(err));
 		
 		/* Not fatal, since this probably won't matter in production. */
 	}
 	
+#ifdef _WIN32
 	u_long non_blocking = 1;
 	if(ioctlsocket(newfd, FIONBIO, &non_blocking) != 0)
+#else
+	int flags = fcntl(newfd, F_GETFL, 0);
+	if(flags == -1 || fcntl(newfd, F_SETFL, flags | O_NONBLOCK) == -1)
+#endif
 	{
-		DWORD err = WSAGetLastError();
-		log_printf("Failed to set accepted connection to non-blocking mode: %s", win_strerror(err).c_str());
+		int err = WSAGetLastError();
+		log_printf("Failed to set accepted connection to non-blocking mode: %s", SOCKET_STRERROR(err));
 		log_printf("Closing connection");
 		
 		closesocket(newfd);
@@ -3819,8 +3959,8 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 	
 	if(setsockopt(newfd, SOL_SOCKET, SO_LINGER, (char*)(&no_linger), sizeof(no_linger)) != 0)
 	{
-		DWORD err = WSAGetLastError();
-		log_printf("Failed to set SO_LINGER on accepted connection: %s", win_strerror(err).c_str());
+		int err = WSAGetLastError();
+		log_printf("Failed to set SO_LINGER on accepted connection: %s", SOCKET_STRERROR(err));
 	}
 	
 	unsigned int peer_id = next_peer_id++;
@@ -3828,7 +3968,7 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 	
 	if(!peer->enable_events(FD_READ | FD_WRITE | FD_CLOSE))
 	{
-		log_printf("WSAEventSelect() failed, dropping peer");
+		log_printf("enable_events() failed, dropping peer");
 		
 		closesocket(peer->sock);
 		delete peer;
@@ -3837,8 +3977,16 @@ void DirectPlay8Peer::peer_accept(std::unique_lock<std::mutex> &l)
 	}
 	
 	peers.insert(std::make_pair(peer_id, peer));
-	
+
 	worker_pool->add_handle(peer->event, [this, peer_id]() { io_peer_triggered(peer_id); });
+
+#ifndef _WIN32
+	/* On Linux, monitor the peer socket for I/O readiness.
+	 * Windows uses WSAEventSelect to link socket to event automatically.
+	 * Use EPOLLET (edge-triggered) to avoid busy-looping on EPOLLOUT.
+	 */
+	worker_pool->add_socket_monitor(peer->sock, peer->event, EPOLLIN | EPOLLOUT | EPOLLET);
+#endif
 }
 
 bool DirectPlay8Peer::peer_connect(Peer::PeerState initial_state, uint32_t remote_ip, uint16_t remote_port, DPNID player_id)
@@ -3872,7 +4020,20 @@ bool DirectPlay8Peer::peer_connect(Peer::PeerState initial_state, uint32_t remot
 	
 	log_printf("Initiating connection to %s:%d as peer_id %u", s_ip, (int)(remote_port), peer_id);
 	
-	if(connect(peer->sock, (struct sockaddr*)(&r_addr), sizeof(r_addr)) != -1 || WSAGetLastError() != WSAEWOULDBLOCK)
+	int connect_result = connect(peer->sock, (struct sockaddr*)(&r_addr), sizeof(r_addr));
+	int err = WSAGetLastError();
+	if(connect_result != -1 && connect_result != 0)
+	{
+		closesocket(peer->sock);
+		delete peer;
+		
+		return false;
+	}
+#ifdef _WIN32
+	if (connect_result == -1 && err != WSAEWOULDBLOCK)
+#else
+	if (connect_result == -1 && err != EINPROGRESS && err != EWOULDBLOCK)
+#endif
 	{
 		closesocket(peer->sock);
 		delete peer;
@@ -3883,7 +4044,15 @@ bool DirectPlay8Peer::peer_connect(Peer::PeerState initial_state, uint32_t remot
 	peers.insert(std::make_pair(peer_id, peer));
 	
 	worker_pool->add_handle(peer->event, [this, peer_id]() { io_peer_triggered(peer_id); });
-	
+
+#ifndef _WIN32
+	/* On Linux, monitor the peer socket for I/O readiness.
+	 * Windows uses WSAEventSelect to link socket to event automatically.
+	 * Use EPOLLET (edge-triggered) to avoid busy-looping on EPOLLOUT.
+	 */
+	worker_pool->add_socket_monitor(peer->sock, peer->event, EPOLLIN | EPOLLOUT | EPOLLET);
+#endif
+
 	return true;
 }
 
@@ -4012,7 +4181,7 @@ void DirectPlay8Peer::peer_shutdown(std::unique_lock<std::mutex> &l, unsigned in
 		*/
 		
 		peer->state = Peer::PS_CLOSING;
-		SetEvent(peer->event);
+		SIGNAL_EVENT(peer->event);
 		
 		dispatch_destroy_player(l, peer->player_id, peer->player_ctx, destroy_player_reason);
 		
@@ -5972,13 +6141,15 @@ DirectPlay8Peer::Peer::Peer(enum PeerState state, int sock, uint32_t ip, uint16_
 
 bool DirectPlay8Peer::Peer::enable_events(long events)
 {
+#ifdef _WIN32
 	if(WSAEventSelect(sock, event, (this->events | events)) != 0)
 	{
 		DWORD err = WSAGetLastError();
-		log_printf("WSAEventSelect() error: ", win_strerror(err).c_str());
+		log_printf("WSAEventSelect() error: ", SOCKET_STRERROR(err));
 		
 		return false;
 	}
+#endif
 	
 	this->events |= events;
 	
@@ -5987,13 +6158,15 @@ bool DirectPlay8Peer::Peer::enable_events(long events)
 
 bool DirectPlay8Peer::Peer::disable_events(long events)
 {
+#ifdef _WIN32
 	if(WSAEventSelect(sock, event, (this->events & ~events)) != 0)
 	{
 		DWORD err = WSAGetLastError();
-		log_printf("WSAEventSelect() error: ", win_strerror(err).c_str());
+		log_printf("WSAEventSelect() error: ", SOCKET_STRERROR(err));
 		
 		return false;
 	}
+#endif
 	
 	this->events &= ~events;
 	

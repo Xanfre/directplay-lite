@@ -19,13 +19,24 @@
 #include <algorithm>
 #include <memory>
 #include <stdio.h>
+#ifdef _WIN32
 #include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#include <time.h>
+#include <stdint.h>
+#include <poll.h>
+#endif
 
 #include "COMAPIException.hpp"
 #include "DirectPlay8Address.hpp"
+#ifndef _WIN32
+#include "EventObject.hpp"
+#endif
 #include "HostEnumerator.hpp"
 #include "Messages.hpp"
 #include "packet.hpp"
+#include "platform.hpp"
 
 // const GUID GUID_NULL = { 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0 } };
 
@@ -100,7 +111,19 @@ HostEnumerator::HostEnumerator(
 			if(host_sp == CLSID_DP8SP_TCPIP)
 			{
 				struct in_addr hostname_addr;
+#ifdef _WIN32
 				if(InetPtonW(AF_INET, hostname_value, &hostname_addr) == 1)
+#else
+				char hostname_narrow[128];
+				size_t converted = wcstombs(hostname_narrow, hostname_value, sizeof(hostname_narrow) - 1);
+				if(converted == (size_t)-1)
+				{
+					throw COMAPIException(DPNERR_INVALIDHOSTADDRESS);
+				}
+				hostname_narrow[converted] = '\0';
+				
+				if(inet_pton(AF_INET, hostname_narrow, &hostname_addr) == 1)
+#endif
 				{
 					send_addr.sin_addr = hostname_addr;
 				}
@@ -165,6 +188,7 @@ HostEnumerator::HostEnumerator(
 		throw std::runtime_error("Cannot create UDP socket");
 	}
 	
+#ifdef _WIN32
 	wake_thread = CreateEvent(NULL, FALSE, FALSE, NULL);
 	if(wake_thread == NULL)
 	{
@@ -178,6 +202,7 @@ HostEnumerator::HostEnumerator(
 		closesocket(sock);
 		throw std::runtime_error("Cannot WSAEventSelect");
 	}
+#endif
 	
 	thread = new std::thread(&HostEnumerator::main, this);
 }
@@ -199,14 +224,22 @@ HostEnumerator::~HostEnumerator()
 	
 	delete thread;
 	
+#ifdef _WIN32
 	CloseHandle(wake_thread);
+#endif
 }
 
 void HostEnumerator::main()
 {
 	while(!req_cancel)
 	{
+#ifdef _WIN32
 		DWORD now = GetTickCount();
+#else
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		DWORD now = (DWORD)((ts.tv_sec * 1000) + (ts.tv_nsec / 1000000));
+#endif
 		
 		if(tx_remain > 0 && now >= next_tx_at)
 		{
@@ -245,7 +278,11 @@ void HostEnumerator::main()
 		}
 		
 		struct sockaddr_in from_addr;
+#ifdef _WIN32
 		int addrlen = sizeof(from_addr);
+#else
+		socklen_t addrlen = sizeof(from_addr);
+#endif
 		
 		int r = recvfrom(sock, (char*)(recv_buf), sizeof(recv_buf), 0, (struct sockaddr*)(&from_addr), &addrlen);
 		if(r > 0)
@@ -265,7 +302,25 @@ void HostEnumerator::main()
 		if(tx_remain > 0) { timeout = std::min((next_tx_at - now), timeout); }
 		if(stop_at   > 0) { timeout = std::min((stop_at - now),    timeout); }
 		
+#ifdef _WIN32
 		WaitForSingleObject(wake_thread, timeout);
+#else
+		/* Poll both the socket (for incoming data) and the eventfd (for cancel). */
+		struct pollfd pfds[2];
+		pfds[0].fd = sock;
+		pfds[0].events = POLLIN;
+		pfds[1].fd = wake_thread;
+		pfds[1].events = POLLIN;
+		if(poll(pfds, 2, timeout) > 0)
+		{
+			/* Drain the eventfd if it was signaled. */
+			if(pfds[1].revents & POLLIN)
+			{
+				uint64_t val;
+				read(wake_thread, &val, sizeof(val));
+			}
+		}
+#endif
 	}
 	
 	if(req_cancel)
@@ -352,6 +407,11 @@ void HostEnumerator::handle_packet(const void *data, size_t size, struct sockadd
 	
 	IDirectPlay8Address *device_address = new DirectPlay8Address(global_refcount);
 	device_address->SetSP(&service_provider);
+
+#ifndef _WIN32
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+#endif
 	
 	DPNMSG_ENUM_HOSTS_RESPONSE message;
 	memset(&message, 0, sizeof(message));
@@ -363,7 +423,11 @@ void HostEnumerator::handle_packet(const void *data, size_t size, struct sockadd
 	message.pvResponseData          = (void*)(response_data);
 	message.dwResponseDataSize      = response_data_size;
 	message.pvUserContext           = user_context;
+#ifdef _WIN32
 	message.dwRoundTripLatencyMS    = GetTickCount() - request_tick_count;
+#else
+	message.dwRoundTripLatencyMS    = (DWORD)((ts.tv_sec * 1000) + (ts.tv_nsec / 1000000)) - request_tick_count;
+#endif
 	
 	message_handler(message_handler_ctx, DPN_MSGID_ENUM_HOSTS_RESPONSE, &message);
 	
@@ -374,7 +438,7 @@ void HostEnumerator::handle_packet(const void *data, size_t size, struct sockadd
 void HostEnumerator::cancel()
 {
 	req_cancel = true;
-	SetEvent(wake_thread);
+	SIGNAL_EVENT(wake_thread);
 }
 
 void HostEnumerator::wait()

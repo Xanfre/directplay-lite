@@ -19,13 +19,18 @@
 #ifndef DPLITE_HOSTENUMERATOR_HPP
 #define DPLITE_HOSTENUMERATOR_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <dplay8.h>
 #include <functional>
 #include <thread>
 #include <vector>
 #include <windows.h>
 
+#ifndef _WIN32
+#include "EventObject.hpp"
+#endif
 #include "network.hpp"
 
 #define DEFAULT_ENUM_COUNT    5
@@ -63,7 +68,11 @@ class HostEnumerator
 		DWORD stop_at;
 		
 		int sock;
+#ifdef _WIN32
 		HANDLE wake_thread;
+#else
+		EventObject wake_thread;
+#endif
 		std::thread *thread;
 		bool req_cancel;
 		

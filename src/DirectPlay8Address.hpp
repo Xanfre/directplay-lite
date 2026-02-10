@@ -19,12 +19,17 @@
 #ifndef DPLITE_DIRECTPLAY8ADDRESS_HPP
 #define DPLITE_DIRECTPLAY8ADDRESS_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <atomic>
 #include <dplay8.h>
+#ifdef _WIN32
 #include <objbase.h>
+#endif
 #include <string>
 #include <vector>
+#include <windows.h>
 
 class DirectPlay8Address: public IDirectPlay8Address
 {

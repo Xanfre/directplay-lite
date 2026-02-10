@@ -16,12 +16,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <mutex>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#ifndef _WIN32
+#include <time.h>
+#include <pthread.h>
+#endif
 
 #include "Log.hpp"
 
@@ -93,8 +99,17 @@ void log_printf(const char *fmt, ...)
 	
 	if(log_fh != NULL)
 	{
+#ifdef _WIN32
 		fprintf(log_fh, "[thread=%u time=%u] ",
 			(unsigned)(GetCurrentThreadId()), (unsigned)(GetTickCount()));
+#else
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+
+		fprintf(log_fh, "[thread=%u time=%u] ",
+			(unsigned)(uintptr_t)pthread_self(),
+			(unsigned)((ts.tv_sec * 1000) + (ts.tv_nsec / 1000000)));
+#endif
 		
 		va_list argv;
 		va_start(argv, fmt);
@@ -106,6 +121,7 @@ void log_printf(const char *fmt, ...)
 }
 
 /* Convert a windows error number to an error message */
+#ifdef _WIN32
 std::string win_strerror(DWORD errnum)
 {
 	char buf[256];
@@ -116,3 +132,4 @@ std::string win_strerror(DWORD errnum)
 	
 	return buf;
 }
+#endif

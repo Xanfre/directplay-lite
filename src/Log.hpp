@@ -27,6 +27,8 @@ bool log_trace_enabled();
 
 void log_printf(const char *fmt, ...);
 
+#ifdef _WIN32
 std::string win_strerror(DWORD errnum);
+#endif
 
 #endif /* !DPLITE_LOG_HPP */

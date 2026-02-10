@@ -19,7 +19,12 @@
 #ifndef DPLITE_SENDQUEUE_HPP
 #define DPLITE_SENDQUEUE_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#include <windows.h>
+#else
+#include <sys/socket.h>
+#endif
 
 #include <functional>
 #include <dplay8.h>
@@ -29,8 +34,8 @@
 #include <stdlib.h>
 #include <utility>
 #include <vector>
-#include <windows.h>
 
+#include "EventObject.hpp"
 #include "packet.hpp"
 
 class SendQueue
@@ -77,11 +82,11 @@ class SendQueue
 		std::list<SendOp*> high_queue;
 		
 		SendOp *current;
-		
-		HANDLE signal_on_queue;
-		
+
+		EventObject& signal_on_queue;
+
 	public:
-		SendQueue(HANDLE signal_on_queue): current(NULL), signal_on_queue(signal_on_queue) {}
+		SendQueue(EventObject& signal_on_queue): current(NULL), signal_on_queue(signal_on_queue) {}
 		
 		/* No copy c'tor. */
 		SendQueue(const SendQueue &src) = delete;

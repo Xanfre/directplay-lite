@@ -19,12 +19,16 @@
 #ifndef DPLITE_DIRECTPLAY8PEER_HPP
 #define DPLITE_DIRECTPLAY8PEER_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <atomic>
 #include <dplay8.h>
 #include <map>
 #include <mutex>
+#ifdef _WIN32
 #include <objbase.h>
+#endif
 #include <queue>
 #include <stdint.h>
 #include <windows.h>

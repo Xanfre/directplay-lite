@@ -17,9 +17,15 @@
 */
 
 #include <assert.h>
+
+#ifdef _WIN32
 #include <winsock2.h>
+#else
+#include <netinet/in.h>
+#endif
 #include <windows.h>
 
+#include "platform.hpp"
 #include "SendQueue.hpp"
 
 void SendQueue::send(SendPriority priority, const PacketSerialiser &ps,
@@ -56,7 +62,7 @@ void SendQueue::send(SendPriority priority, const PacketSerialiser &ps,
 			break;
 	}
 	
-	SetEvent(signal_on_queue);
+	SIGNAL_EVENT(signal_on_queue);
 }
 
 SendQueue::SendOp *SendQueue::get_pending()
