@@ -6,8 +6,11 @@
 *.pdb
 *.ilk
 *.vcxproj.user
+*.so*
+test_*
 
 Debug/
 Release/
+objs/
 
 /.vs/
