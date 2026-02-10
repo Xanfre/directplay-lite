@@ -19,16 +19,23 @@
 #ifndef DPLITE_HANDLEHANDLINGPOOL_HPP
 #define DPLITE_HANDLEHANDLINGPOOL_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#include <windows.h>
+#else
+#include <sys/epoll.h>
+#include <stdint.h>
+#endif
+
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <thread>
 #include <vector>
-#include <windows.h>
 
 /* This class maintains a pool of threads to wait on HANDLEs and invoke callback functors when the
  * HANDLEs become signalled.
@@ -49,17 +56,29 @@
 class HandleHandlingPool
 {
 	private:
+#ifndef _WIN32
+		struct Pool;
+#endif
 		struct Worker
 		{
+#ifdef _WIN32
 			const size_t base_index;
+#else
+			Pool *pool;
+#endif
 			std::thread thread;
-			
+
+#ifdef _WIN32
 			Worker(size_t base_index);
+#else
+			Worker(Pool *pool);
+#endif
 		};
 		
 		const size_t threads_per_pool;
 		const size_t max_handles_per_pool;
-		
+
+#ifdef _WIN32
 		/* spin_workers is a MANUAL RESET event object, we set this to signalled whenever
 		 * we need all the worker threads to exit their WaitForMultipleObjects() calls.
 		*/
@@ -80,6 +99,25 @@ class HandleHandlingPool
 		
 		std::vector<HANDLE> handles;
 		std::vector< std::function<void()> > callbacks;
+#else
+		/* Linux implementation using epoll - each Pool has its own epoll fd and threads */
+		struct Pool
+		{
+			int epoll_fd;
+			int wake_fd;
+			std::map<int, std::function<void()>> callbacks;
+			std::map<int, int> socket_to_eventfd;
+			std::set<Worker*> workers;
+			size_t handle_count;
+
+			Pool();
+			~Pool();
+		};
+
+		std::vector<Pool*> pools;
+		std::map<int, Pool*> fd_to_pool;  /* Maps fd to its owning pool */
+		std::atomic<bool> stopping;
+#endif
 		
 		/* This shared_mutex protects access to handles/callbacks.
 		 *
@@ -162,9 +200,22 @@ class HandleHandlingPool
 	public:
 		HandleHandlingPool(size_t threads_per_pool, size_t max_handles_per_pool);
 		~HandleHandlingPool();
-		
+
+#ifdef _WIN32
 		void add_handle(HANDLE handle, const std::function<void()> &callback);
 		void remove_handle(HANDLE handle);
+#else
+		void add_handle(int fd, const std::function<void()> &callback);
+		void remove_handle(int fd);
+
+		/* Add a socket fd that will signal an eventfd when readable/writable */
+		void add_socket_monitor(int socket_fd, int eventfd, uint32_t events);
+		void remove_socket_monitor(int socket_fd);
+
+	private:
+		Pool* find_or_create_pool();
+		void spawn_pool_workers(Pool *pool);
+#endif
 };
 
 #endif /* !DPLITE_HANDLEHANDLINGPOOL_HPP */
