@@ -332,7 +332,7 @@ class DirectPlay8AddressWithAStringComponent: public DirectPlay8AddressInitial
 		const DWORD AREFVSIZE = 19;
 		
 		const wchar_t *WREFVAL = L"ASCII string value";
-		const DWORD WREFVSIZE = 38;
+		const DWORD WREFVSIZE = 19 * sizeof(wchar_t);
 		
 		unsigned char vbuf[256];
 		
@@ -708,7 +708,7 @@ class DirectPlay8AddressSetUserData: public DirectPlay8AddressInitial
 {
 	protected:
 		const unsigned char REFDATA[22] = { 0x00, 0x01, 0x02, 0x03, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 0xFF, 0xFE };
-		static const DWORD  REFSIZE     = 22;
+		const DWORD REFSIZE = 22;
 		
 		virtual void SetUp() override
 		{

@@ -16,14 +16,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
+#include <windows.h>
 #include <atomic>
 #include <gtest/gtest.h>
 #include <vector>
-#include <windows.h>
 
 #include "../src/EventObject.hpp"
 #include "../src/HandleHandlingPool.hpp"
+#include "../src/platform.hpp"
 
 TEST(HandleHandlingPool, SingleThreadBasic)
 {
@@ -38,11 +41,11 @@ TEST(HandleHandlingPool, SingleThreadBasic)
 	EventObject e3(FALSE, FALSE);
 	std::atomic<int> e3_counter(0);
 	
-	pool.add_handle(e1, [&e1, &e1_counter]() { if(++e1_counter < 4) { SetEvent(e1); } });
-	pool.add_handle(e2, [&e2, &e2_counter]() { if(++e2_counter < 2) { SetEvent(e2); } });
+	pool.add_handle(e1, [&e1, &e1_counter]() { if(++e1_counter < 4) { SIGNAL_EVENT(e1); } });
+	pool.add_handle(e2, [&e2, &e2_counter]() { if(++e2_counter < 2) { SIGNAL_EVENT(e2); } });
 	pool.add_handle(e3, [&e3_counter]() { ++e3_counter; });
 	
-	SetEvent(e2);
+	SIGNAL_EVENT(e2);
 	
 	Sleep(100);
 	
@@ -64,11 +67,11 @@ TEST(HandleHandlingPool, MultiThreadBasic)
 	EventObject e3(FALSE, FALSE);
 	std::atomic<int> e3_counter(0);
 	
-	pool.add_handle(e1, [&e1, &e1_counter]() { if(++e1_counter < 4) { SetEvent(e1); } });
-	pool.add_handle(e2, [&e2, &e2_counter]() { if(++e2_counter < 2) { SetEvent(e2); } });
+	pool.add_handle(e1, [&e1, &e1_counter]() { if(++e1_counter < 4) { SIGNAL_EVENT(e1); } });
+	pool.add_handle(e2, [&e2, &e2_counter]() { if(++e2_counter < 2) { SIGNAL_EVENT(e2); } });
 	pool.add_handle(e3, [&e3_counter]() { ++e3_counter; });
 	
-	SetEvent(e2);
+	SIGNAL_EVENT(e2);
 	
 	Sleep(100);
 	
@@ -94,7 +97,7 @@ TEST(HandleHandlingPool, ThreadAssignment)
 	mutex.lock();
 	
 	pool.add_handle(e1, [&mutex, &e1_counter]() { ++e1_counter; mutex.lock(); mutex.unlock(); });
-	pool.add_handle(e2, [&mutex, &e2, &e2_counter]() { if(++e2_counter < 20) { SetEvent(e2); } mutex.lock(); mutex.unlock(); });
+	pool.add_handle(e2, [&mutex, &e2, &e2_counter]() { if(++e2_counter < 20) { SIGNAL_EVENT(e2); } mutex.lock(); mutex.unlock(); });
 	pool.add_handle(e3, [&e3_counter]() { ++e3_counter; });
 	
 	Sleep(100);
@@ -108,7 +111,7 @@ TEST(HandleHandlingPool, ThreadAssignment)
 	EXPECT_EQ(e2_counter, 4);
 	EXPECT_EQ(e3_counter, 0);
 	
-	SetEvent(e3);
+	SIGNAL_EVENT(e3);
 	
 	Sleep(100);
 	
@@ -118,7 +121,7 @@ TEST(HandleHandlingPool, ThreadAssignment)
 	EXPECT_EQ(e2_counter, 4);
 	EXPECT_EQ(e3_counter, 1);
 	
-	ResetEvent(e1);
+	RESET_EVENT(e1);
 	mutex.unlock();
 	
 	Sleep(100);
@@ -149,9 +152,9 @@ TEST(HandleHandlingPool, RemoveHandle)
 	pool.add_handle(e2, [&e2_counter]() { ++e2_counter; });
 	pool.add_handle(e3, [&e3_counter]() { ++e3_counter; });
 	
-	SetEvent(e1);
-	SetEvent(e2);
-	SetEvent(e3);
+	SIGNAL_EVENT(e1);
+	SIGNAL_EVENT(e2);
+	SIGNAL_EVENT(e3);
 	
 	Sleep(100);
 	
@@ -161,9 +164,9 @@ TEST(HandleHandlingPool, RemoveHandle)
 	
 	pool.remove_handle(e2);
 	
-	SetEvent(e1);
-	SetEvent(e2);
-	SetEvent(e3);
+	SIGNAL_EVENT(e1);
+	SIGNAL_EVENT(e2);
+	SIGNAL_EVENT(e3);
 	
 	Sleep(100);
 	
@@ -185,8 +188,8 @@ TEST(HandleHandlingPool, Stress)
 	
 	for(int i = 0; i < 64; ++i)
 	{
-		pool.add_handle(events[i], [i, &counters, &events]() { if(++counters[i] < 10000) { SetEvent(events[i]); } });
-		SetEvent(events[i]);
+		pool.add_handle(events[i], [i, &counters, &events]() { if(++counters[i] < 10000) { SIGNAL_EVENT(events[i]); } });
+		SIGNAL_EVENT(events[i]);
 	}
 	
 	/* Is 5s enough to handle 640,000 events across 32 threads? Probably! */

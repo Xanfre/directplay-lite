@@ -16,9 +16,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
-#include <gtest/gtest.h>
 #include <windows.h>
+#else
+#include <poll.h>
+#include <unistd.h>
+#include <stdint.h>
+#endif
+#include <gtest/gtest.h>
 
 #include "../src/EventObject.hpp"
 #include "../src/packet.hpp"
@@ -28,13 +34,27 @@ class SendQueueTest: public ::testing::Test {
 	protected:
 		EventObject event;
 		SendQueue sq;
-		
+
 		SendQueueTest(): sq(event) {}
 		~SendQueueTest() {}
-		
+
 		bool event_signalled()
 		{
+#ifdef _WIN32
 			return (WaitForSingleObject(event, 0) == WAIT_OBJECT_0);
+#else
+			struct pollfd pfd;
+			pfd.fd = event;
+			pfd.events = POLLIN;
+			if(poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN))
+			{
+				/* Drain the eventfd to reset it */
+				uint64_t val;
+				read(event, &val, sizeof(val));
+				return true;
+			}
+			return false;
+#endif
 		}
 		
 		uint32_t sqop_ptype(SendQueue::SendOp *sqop)

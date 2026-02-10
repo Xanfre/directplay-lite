@@ -16,7 +16,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
+#else
+#include <netinet/in.h>
+#include <time.h>
+#endif
+#include <windows.h>
+
 #include <array>
 #include <functional>
 #include <gtest/gtest.h>
@@ -28,11 +35,25 @@
 #include "../src/DirectPlay8Address.hpp"
 #include "../src/DirectPlay8Peer.hpp"
 
+#ifdef _WIN32
 #pragma warning(disable: 4065) /* switch statement contains 'default' but no 'case' labels */
+#endif
 
 // #define INSTANTIATE_FROM_COM
 
 #define PORT 42895
+
+#ifdef _WIN32
+#define TEST_GET_TICKS() GetTickCount()
+#else
+static inline DWORD unix_get_ticks()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
+}
+#define TEST_GET_TICKS() unix_get_ticks()
+#endif
 
 static const GUID APP_GUID_1 = { 0xa6133957, 0x6f42, 0x46ce, { 0xa9, 0x88, 0x22, 0xf7, 0x79, 0x47, 0x08, 0x16 } };
 static const GUID APP_GUID_2 = { 0x5917faae, 0x7ab0, 0x42d2, { 0xae, 0x13, 0x9c, 0x54, 0x1b, 0x7f, 0xb5, 0xab } };
@@ -430,8 +451,18 @@ static void EXPECT_SESSIONS(std::map<GUID, FoundSession, CompareGUID> got, const
 	
 	for(auto gi = got.begin(); gi != got.end(); ++gi)
 	{
+#ifdef _WIN32
 		wchar_t application_guid_s[128];
 		StringFromGUID2(gi->second.application_guid, application_guid_s, 128);
+#else
+		char application_guid_s[128];
+		GUID &guid = gi->second.application_guid;
+		snprintf(application_guid_s, sizeof(application_guid_s),
+			"{%08X-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
+			guid.Data1, guid.Data2, guid.Data3,
+			guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+			guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+#endif
 		
 		ADD_FAILURE() << "Extra session:" << std::endl
 			<< "  application_guid    = " << application_guid_s << std::endl
@@ -440,8 +471,18 @@ static void EXPECT_SESSIONS(std::map<GUID, FoundSession, CompareGUID> got, const
 	
 	for(auto ei = expect.begin(); ei != expect.end(); ++ei)
 	{
+#ifdef _WIN32
 		wchar_t application_guid_s[128];
 		StringFromGUID2(ei->application_guid, application_guid_s, 128);
+#else
+		char application_guid_s[128];
+		GUID &guid = ei->application_guid;
+		snprintf(application_guid_s, sizeof(application_guid_s),
+			"{%08X-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
+			guid.Data1, guid.Data2, guid.Data3,
+			guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+			guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+#endif
 		
 		ADD_FAILURE() << "Missing session:" << std::endl
 			<< "  application_guid    = " << application_guid_s << std::endl
@@ -520,7 +561,7 @@ TEST(DirectPlay8Peer, EnumHostsSync)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
@@ -536,7 +577,7 @@ TEST(DirectPlay8Peer, EnumHostsSync)
 		DPNENUMHOSTS_SYNC  /* dwFlags */
 	), S_OK);
 	
-	DWORD end = GetTickCount();
+	DWORD end = TEST_GET_TICKS();
 	
 	FoundSession expect_sessions[] = {
 		FoundSession(APP_GUID_1, L"Application 1 Session 1"),
@@ -583,7 +624,7 @@ TEST(DirectPlay8Peer, EnumHostsAsync)
 		}
 		else if(dwMessageType == DPN_MSGID_ASYNC_OP_COMPLETE)
 		{
-			got_async_op_complete_at = GetTickCount();
+			got_async_op_complete_at = TEST_GET_TICKS();
 			
 			/* We shouldn't get DPNMSG_ASYNC_OP_COMPLETE multiple times. */
 			EXPECT_FALSE(got_async_op_complete);
@@ -608,7 +649,7 @@ TEST(DirectPlay8Peer, EnumHostsAsync)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
@@ -655,7 +696,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelByHandle)
 	{
 		if(dwMessageType == DPN_MSGID_ASYNC_OP_COMPLETE)
 		{
-			got_async_op_complete_at = GetTickCount();
+			got_async_op_complete_at = TEST_GET_TICKS();
 			
 			/* We shouldn't get DPNMSG_ASYNC_OP_COMPLETE multiple times. */
 			EXPECT_FALSE(got_async_op_complete);
@@ -680,7 +721,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelByHandle)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
@@ -721,7 +762,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelAllEnums)
 	{
 		if(dwMessageType == DPN_MSGID_ASYNC_OP_COMPLETE)
 		{
-			got_async_op_complete_at = GetTickCount();
+			got_async_op_complete_at = TEST_GET_TICKS();
 			
 			/* We shouldn't get DPNMSG_ASYNC_OP_COMPLETE multiple times. */
 			EXPECT_FALSE(got_async_op_complete);
@@ -746,7 +787,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelAllEnums)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
@@ -787,7 +828,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelAllOperations)
 	{
 		if(dwMessageType == DPN_MSGID_ASYNC_OP_COMPLETE)
 		{
-			got_async_op_complete_at = GetTickCount();
+			got_async_op_complete_at = TEST_GET_TICKS();
 			
 			/* We shouldn't get DPNMSG_ASYNC_OP_COMPLETE multiple times. */
 			EXPECT_FALSE(got_async_op_complete);
@@ -812,7 +853,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelAllOperations)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
@@ -853,7 +894,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelByClose)
 	{
 		if(dwMessageType == DPN_MSGID_ASYNC_OP_COMPLETE)
 		{
-			got_async_op_complete_at = GetTickCount();
+			got_async_op_complete_at = TEST_GET_TICKS();
 			
 			/* We shouldn't get DPNMSG_ASYNC_OP_COMPLETE multiple times. */
 			EXPECT_FALSE(got_async_op_complete);
@@ -878,7 +919,7 @@ TEST(DirectPlay8Peer, EnumHostsAsyncCancelByClose)
 	IDP8AddressInstance device_address;
 	device_address->SetSP(&CLSID_DP8SP_TCPIP);
 	
-	DWORD start = GetTickCount();
+	DWORD start = TEST_GET_TICKS();
 	
 	ASSERT_EQ(client->EnumHosts(
 		NULL,              /* pApplicationDesc */
