@@ -16,16 +16,32 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <iphlpapi.h>
 #include <windows.h>
 #include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <string.h>
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <vector>
+#include <map>
 
 #include "network.hpp"
-#include "log.hpp"
+#include "platform.hpp"
+#include "Log.hpp"
 
 int create_udp_socket(uint32_t ipaddr, uint16_t port)
 {
@@ -34,21 +50,45 @@ int create_udp_socket(uint32_t ipaddr, uint16_t port)
 	{
 		return -1;
 	}
-	
+
+#ifdef _WIN32
 	u_long non_blocking = 1;
 	if(ioctlsocket(sock, FIONBIO, &non_blocking) != 0)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+#else
+	int flags = fcntl(sock, F_GETFL, 0);
+	if(flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		closesocket(sock);
+		return -1;
+	}
+#endif
+
 	BOOL broadcast = TRUE;
 	if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*)(&broadcast), sizeof(BOOL)) == -1)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+
+	BOOL reuse = TRUE;
+	if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)(&reuse), sizeof(BOOL)) == -1)
+	{
+		closesocket(sock);
+		return -1;
+	}
+
+#ifndef _WIN32
+	/* On Linux, set SO_REUSEPORT to allow multiple sockets to bind to the same port. */
+	if(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (char*)(&reuse), sizeof(BOOL)) == -1)
+	{
+		log_printf("setsockopt(SO_REUSEPORT) failed for UDP: %s", strerror(errno));
+	}
+#endif
+
 	struct sockaddr_in addr;
 	addr.sin_family      = AF_INET;
 	addr.sin_addr.s_addr = ipaddr;
@@ -56,6 +96,8 @@ int create_udp_socket(uint32_t ipaddr, uint16_t port)
 	
 	if(bind(sock, (struct sockaddr*)(&addr), sizeof(addr)) == -1)
 	{
+		log_printf("bind() failed for UDP socket: %s (addr=%08x, port=%d)",
+			strerror(errno), ipaddr, port);
 		closesocket(sock);
 		return -1;
 	}
@@ -70,21 +112,38 @@ int create_listener_socket(uint32_t ipaddr, uint16_t port)
 	{
 		return -1;
 	}
-	
+
+#ifdef _WIN32
 	u_long non_blocking = 1;
 	if(ioctlsocket(sock, FIONBIO, &non_blocking) != 0)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+#else
+	int flags = fcntl(sock, F_GETFL, 0);
+	if(flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		closesocket(sock);
+		return -1;
+	}
+#endif
+
 	BOOL reuse = TRUE;
 	if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)(&reuse), sizeof(BOOL)) == -1)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+
+#ifndef _WIN32
+	/* On Linux, set SO_REUSEPORT to allow multiple sockets to bind to the same port. */
+	if(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (char*)(&reuse), sizeof(BOOL)) == -1)
+	{
+		log_printf("setsockopt(SO_REUSEPORT) failed: %s", strerror(errno));
+	}
+#endif
+
 	struct sockaddr_in addr;
 	addr.sin_family      = AF_INET;
 	addr.sin_addr.s_addr = ipaddr;
@@ -92,6 +151,8 @@ int create_listener_socket(uint32_t ipaddr, uint16_t port)
 	
 	if(bind(sock, (struct sockaddr*)(&addr), sizeof(addr)) == -1)
 	{
+		log_printf("bind() failed for listener socket: %s (addr=%08x, port=%d)",
+			strerror(errno), ipaddr, port);
 		closesocket(sock);
 		return -1;
 	}
@@ -112,21 +173,38 @@ int create_client_socket(uint32_t local_ipaddr, uint16_t local_port)
 	{
 		return -1;
 	}
-	
+
+#ifdef _WIN32
 	u_long non_blocking = 1;
 	if(ioctlsocket(sock, FIONBIO, &non_blocking) != 0)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+#else
+	int flags = fcntl(sock, F_GETFL, 0);
+	if(flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		closesocket(sock);
+		return -1;
+	}
+#endif
+
 	BOOL reuse = TRUE;
 	if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)(&reuse), sizeof(BOOL)) == -1)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+
+#ifndef _WIN32
+	/* On Linux, set SO_REUSEPORT to allow multiple sockets to bind to the same port. */
+	if(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (char*)(&reuse), sizeof(BOOL)) == -1)
+	{
+		log_printf("setsockopt(SO_REUSEPORT) failed for client socket: %s", strerror(errno));
+	}
+#endif
+
 	/* Set SO_LINGER so that closesocket() does a hard close, immediately removing the socket
 	 * address from the connection table.
 	 *
@@ -152,6 +230,8 @@ int create_client_socket(uint32_t local_ipaddr, uint16_t local_port)
 	
 	if(bind(sock, (struct sockaddr*)(&l_addr), sizeof(l_addr)) == -1)
 	{
+		log_printf("bind() failed for client socket: %s (addr=%08x, port=%d)",
+			strerror(errno), local_ipaddr, local_port);
 		closesocket(sock);
 		return -1;
 	}
@@ -166,14 +246,23 @@ int create_discovery_socket()
 	{
 		return -1;
 	}
-	
+
+#ifdef _WIN32
 	u_long non_blocking = 1;
 	if(ioctlsocket(sock, FIONBIO, &non_blocking) != 0)
 	{
 		closesocket(sock);
 		return -1;
 	}
-	
+#else
+	int flags = fcntl(sock, F_GETFL, 0);
+	if(flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		closesocket(sock);
+		return -1;
+	}
+#endif
+
 	BOOL reuse = TRUE;
 	if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)(&reuse), sizeof(BOOL)) == -1)
 	{
@@ -197,6 +286,7 @@ int create_discovery_socket()
 
 std::list<SystemNetworkInterface> get_network_interfaces()
 {
+#ifdef _WIN32
 	std::vector<unsigned char> buf;
 	
 	while(1)
@@ -254,6 +344,68 @@ std::list<SystemNetworkInterface> get_network_interfaces()
 		
 		interfaces.push_back(iface);
 	}
-	
+
 	return interfaces;
+#else
+	std::list<SystemNetworkInterface> interfaces;
+	struct ifaddrs *ifaddr, *ifa;
+
+	if(getifaddrs(&ifaddr) == -1)
+	{
+		log_printf("getifaddrs: %s", strerror(errno));
+		return interfaces;
+	}
+
+	std::map<std::string, SystemNetworkInterface> iface_map;
+
+	for(ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
+	{
+		if(ifa->ifa_addr == NULL)
+		{
+			continue;
+		}
+
+		if(ifa->ifa_flags & IFF_LOOPBACK)
+		{
+			continue;
+		}
+
+		if(ifa->ifa_addr->sa_family != AF_INET && ifa->ifa_addr->sa_family != AF_INET6)
+		{
+			continue;
+		}
+
+		std::string ifname(ifa->ifa_name);
+
+		SystemNetworkInterface &iface = iface_map[ifname];
+
+		if(iface.friendly_name.empty())
+		{
+			iface.friendly_name.assign(ifname.begin(), ifname.end());
+		}
+
+		struct sockaddr_storage ss;
+		memset(&ss, 0, sizeof(ss));
+
+		if(ifa->ifa_addr->sa_family == AF_INET)
+		{
+			memcpy(&ss, ifa->ifa_addr, sizeof(struct sockaddr_in));
+		}
+		else if(ifa->ifa_addr->sa_family == AF_INET6)
+		{
+			memcpy(&ss, ifa->ifa_addr, sizeof(struct sockaddr_in6));
+		}
+
+		iface.unicast_addrs.push_back(ss);
+	}
+
+	freeifaddrs(ifaddr);
+
+	for(auto &pair : iface_map)
+	{
+		interfaces.push_back(pair.second);
+	}
+
+	return interfaces;
+#endif
 }

@@ -19,10 +19,13 @@
 #ifndef DPLITE_NETWORK_HPP
 #define DPLITE_NETWORK_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include <list>
 #include <stdint.h>
 #include <string>
+#include <windows.h>
 
 #define DISCOVERY_PORT    6073
 #define DEFAULT_HOST_PORT 6072
