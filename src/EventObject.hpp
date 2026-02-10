@@ -19,22 +19,38 @@
 #ifndef DPLITE_EVENTOBJECT_HPP
 #define DPLITE_EVENTOBJECT_HPP
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
+#else
+#include <stdint.h>
+#endif
 
 class EventObject
 {
 	private:
 		/* No copy c'tor. */
 		EventObject(const EventObject&) = delete;
-		
+
+#ifdef _WIN32
 		HANDLE handle;
-	
+#else
+		int fd;
+		bool manual_reset;
+		bool signaled;
+#endif
+
 	public:
 		EventObject(BOOL bManualReset = FALSE, BOOL bInitialState = FALSE);
 		~EventObject();
-		
+
+#ifdef _WIN32
 		operator HANDLE() const;
+#else
+		operator int() const;
+		void set();
+		void reset();
+#endif
 };
 
 #endif /* !DPLITE_EVENTOBJECT_HPP */
