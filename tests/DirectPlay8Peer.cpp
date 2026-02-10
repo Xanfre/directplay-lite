@@ -4814,9 +4814,15 @@ TEST(DirectPlay8Peer, AsyncSendCancelByHandle)
 	
 	DPNHANDLE cancel_handle = 0;
 	bool got_cancel_msg = false;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&cancel_handle, &got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -4834,7 +4840,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelByHandle)
 					
 					got_cancel_msg = true;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -4888,10 +4908,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelByHandle)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages we don't care about... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -4904,11 +4923,14 @@ TEST(DirectPlay8Peer, AsyncSendCancelByHandle)
 			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...hopefully stuffing up the send queue enough for us to be able to cancel THIS send
-	 * before it goes out.
-	*/
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the message and cancel it by handle. */
 	ASSERT_EQ(host->SendTo(
 		p1_player_id,
 		bd,
@@ -4920,10 +4942,17 @@ TEST(DirectPlay8Peer, AsyncSendCancelByHandle)
 	), DPNSUCCESS_PENDING);
 	
 	ASSERT_EQ(host->CancelAsyncOperation(cancel_handle, 0), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
 	EXPECT_TRUE(got_cancel_msg);
 }
 
@@ -4933,9 +4962,15 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSends)
 	
 	DPNHANDLE cancel_handle = 0;
 	int got_cancel_msg = 0;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&cancel_handle, &got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -4952,7 +4987,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSends)
 					
 					++got_cancel_msg;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -5006,10 +5055,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSends)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -5022,15 +5070,37 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSends)
 			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and cancel however many of them are still pending here. */
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the message and cancel it. */
+	ASSERT_EQ(host->SendTo(
+		p1_player_id,
+		bd,
+		1,
+		0,
+		(void*)(0xABCD),
+		&cancel_handle,
+		DPNSEND_PRIORITY_LOW
+	), DPNSUCCESS_PENDING);
+
 	ASSERT_EQ(host->CancelAsyncOperation(p1_player_id, DPNCANCEL_PLAYER_SENDS), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
-	EXPECT_TRUE(got_cancel_msg > 0);
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
+	EXPECT_EQ(got_cancel_msg, 1);
 }
 
 TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
@@ -5039,9 +5109,15 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
 	
 	DPNHANDLE cancel_handle = 0;
 	int got_cancel_msg = 0;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&cancel_handle, &got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -5059,7 +5135,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
 					
 					++got_cancel_msg;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -5113,10 +5203,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -5126,12 +5215,17 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
 			0,
 			(void*)(0xABCD),
 			&send_handle,
-			DPNSEND_PRIORITY_HIGH
+			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and hopefully cancel this one before it goes out. */
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the low-priority message and cancel it. */
 	ASSERT_EQ(host->SendTo(
 		p1_player_id,
 		bd,
@@ -5143,10 +5237,17 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsLow)
 	), DPNSUCCESS_PENDING);
 	
 	ASSERT_EQ(host->CancelAsyncOperation(p1_player_id, DPNCANCEL_PLAYER_SENDS_PRIORITY_LOW), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
 	EXPECT_EQ(got_cancel_msg, 1);
 }
 
@@ -5156,9 +5257,15 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsNormal)
 	
 	DPNHANDLE cancel_handle = 0;
 	int got_cancel_msg = 0;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&cancel_handle, &got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -5176,7 +5283,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsNormal)
 					
 					++got_cancel_msg;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -5230,10 +5351,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsNormal)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -5243,12 +5363,17 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsNormal)
 			0,
 			(void*)(0xABCD),
 			&send_handle,
-			DPNSEND_PRIORITY_HIGH
+			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and hopefully cancel this one before it goes out. */
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the normal-priority message and cancel it. */
 	ASSERT_EQ(host->SendTo(
 		p1_player_id,
 		bd,
@@ -5260,20 +5385,35 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsNormal)
 	), DPNSUCCESS_PENDING);
 	
 	ASSERT_EQ(host->CancelAsyncOperation(p1_player_id, DPNCANCEL_PLAYER_SENDS_PRIORITY_NORMAL), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
 	EXPECT_EQ(got_cancel_msg, 1);
 }
 
 TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsHigh)
 {
 	DPNID p1_player_id = -1;
+
+	DPNHANDLE cancel_handle = 0;
 	int got_cancel_msg = 0;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -5290,7 +5430,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsHigh)
 					
 					++got_cancel_msg;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -5344,10 +5498,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsHigh)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -5357,18 +5510,40 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsHigh)
 			0,
 			(void*)(0xABCD),
 			&send_handle,
-			DPNSEND_PRIORITY_HIGH
+			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and cancel however many haven't gone out yet. */
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the high-priority message and cancel it. */
+	ASSERT_EQ(host->SendTo(
+		p1_player_id,
+		bd,
+		1,
+		0,
+		(void*)(0xABCD),
+		&cancel_handle,
+		DPNSEND_PRIORITY_HIGH
+	), DPNSUCCESS_PENDING);
+
 	ASSERT_EQ(host->CancelAsyncOperation(p1_player_id, DPNCANCEL_PLAYER_SENDS_PRIORITY_HIGH), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
-	EXPECT_NE(got_cancel_msg, 0);
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
+	EXPECT_EQ(got_cancel_msg, 1);
 }
 
 TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsOtherHandle)
@@ -5486,9 +5661,15 @@ TEST(DirectPlay8Peer, AsyncSendCancelAllOperations)
 	
 	DPNHANDLE cancel_handle = 0;
 	int got_cancel_msg = 0;
-	
+
+	/* Synchronization to block all worker threads while we queue and cancel */
+	std::mutex sync_mutex;
+	std::condition_variable sync_cv;
+	int workers_blocked = 0;
+	bool cancel_done = false;
+
 	SessionHost host(APP_GUID_1, L"Session 1", PORT,
-		[&cancel_handle, &got_cancel_msg]
+		[&cancel_handle, &got_cancel_msg, &sync_mutex, &sync_cv, &workers_blocked, &cancel_done]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
@@ -5498,6 +5679,7 @@ TEST(DirectPlay8Peer, AsyncSendCancelAllOperations)
 				if(sc->hResultCode == DPNERR_USERCANCEL)
 				{
 					EXPECT_EQ(sc->dwSize,              sizeof(*sc));
+					EXPECT_EQ(sc->hAsyncOp,            cancel_handle);
 					EXPECT_EQ(sc->pvUserContext,       (void*)(0xABCD));
 					EXPECT_EQ(sc->dwSendCompleteFlags, 0);
 					EXPECT_EQ(sc->pBuffers,            (DPN_BUFFER_DESC*)(NULL));
@@ -5505,7 +5687,21 @@ TEST(DirectPlay8Peer, AsyncSendCancelAllOperations)
 					
 					++got_cancel_msg;
 				}
-				else if(sc->hResultCode != S_OK)
+				else if(sc->hResultCode == S_OK)
+				{
+					/* Block ALL workers on successful send completion.
+					 * We send enough trigger messages to block all pool threads,
+					 * ensuring no worker can process the target before cancellation.
+					 */
+					std::unique_lock<std::mutex> lk(sync_mutex);
+					if(!cancel_done)
+					{
+						++workers_blocked;
+						sync_cv.notify_all();
+						sync_cv.wait(lk, [&cancel_done]() { return cancel_done; });
+					}
+				}
+				else
 				{
 					ADD_FAILURE() << "Unexpected hResultCode: " << sc->hResultCode;
 				}
@@ -5559,10 +5755,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelAllOperations)
 	DPN_BUFFER_DESC bd[] = {
 		{ 12, (BYTE*)("Hello, world") },
 	};
-	
-	/* Queue a load of messages... */
-	
-	for(int i = 0; i < 1000; ++i)
+
+	/* Send enough messages to block all worker threads in the pool */
+	for(int i = 0; i < 4; ++i)
 	{
 		DPNHANDLE send_handle;
 		ASSERT_EQ(host->SendTo(
@@ -5575,15 +5770,37 @@ TEST(DirectPlay8Peer, AsyncSendCancelAllOperations)
 			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and cancel however many of them are still pending here. */
-	
+
+	/* Wait for all workers to be blocked in callbacks */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		sync_cv.wait(lk, [&workers_blocked]() { return workers_blocked >= 4; });
+	}
+
+	/* All workers are blocked. Queue the message and cancel it. */
+	ASSERT_EQ(host->SendTo(
+		p1_player_id,
+		bd,
+		1,
+		0,
+		(void*)(0xABCD),
+		&cancel_handle,
+		0
+	), DPNSUCCESS_PENDING);
+
 	ASSERT_EQ(host->CancelAsyncOperation(0, DPNCANCEL_ALL_OPERATIONS), S_OK);
-	
-	/* Wait for the send buffer to clear out. */
-	Sleep(1000);
-	
-	EXPECT_TRUE(got_cancel_msg > 0);
+
+	/* Unblock the worker */
+	{
+		std::unique_lock<std::mutex> lk(sync_mutex);
+		cancel_done = true;
+	}
+	sync_cv.notify_all();
+
+	/* Wait for everything to settle */
+	Sleep(100);
+
+	EXPECT_EQ(got_cancel_msg, 1);
 }
 
 TEST(DirectPlay8Peer, AsyncSendCancelByClose)
@@ -5598,8 +5815,9 @@ TEST(DirectPlay8Peer, AsyncSendCancelByClose)
 			if(dwMessageType == DPN_MSGID_SEND_COMPLETE)
 			{
 				DPNMSG_SEND_COMPLETE *sc = (DPNMSG_SEND_COMPLETE*)(pMessage);
-				
-				if(sc->hResultCode == DPNERR_USERCANCEL)
+
+				if(sc->hResultCode == DPNERR_USERCANCEL
+					|| sc->hResultCode == DPNERR_CONNECTIONLOST)
 				{
 					EXPECT_EQ(sc->dwSize,              sizeof(*sc));
 					EXPECT_EQ(sc->pvUserContext,       (void*)(0xABCD));
@@ -5659,9 +5877,14 @@ TEST(DirectPlay8Peer, AsyncSendCancelByClose)
 	
 	/* Give everything a moment to settle. */
 	Sleep(250);
-	
+
+	/* Use a large payload to fill the TCP send buffer so that messages
+	 * back up in the queue and are still pending when Close() runs.
+	 */
+	std::vector<BYTE> payload(32768, 0xAA);
+
 	DPN_BUFFER_DESC bd[] = {
-		{ 12, (BYTE*)("Hello, world") },
+		{ (DWORD)(payload.size()), payload.data() },
 	};
 	
 	/* Queue a load of messages... */
@@ -5679,12 +5902,14 @@ TEST(DirectPlay8Peer, AsyncSendCancelByClose)
 			0
 		), DPNSUCCESS_PENDING);
 	}
-	
-	/* ...and cancel however many of them are still pending here. */
-	
+
+	/* ...and close immediately. This should cancel any pending messages.
+	 * Messages may report DPNERR_USERCANCEL (cancelled from queue) or
+	 * DPNERR_CONNECTIONLOST (connection torn down during send).
+	 */
 	host->Close(DPNCLOSE_IMMEDIATE);
-	
-	/* Wait for the send buffer to clear out. */
+
+	/* Wait for everything to settle */
 	Sleep(1000);
 	
 	EXPECT_TRUE(got_cancel_msg > 0);
