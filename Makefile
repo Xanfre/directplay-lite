@@ -54,7 +54,7 @@ DPNET_OBJS = $(srcobjdir)/AsyncHandleAllocator.o \
 			$(srcobjdir)/COMAPIException.o \
 			$(srcobjdir)/DirectPlay8Address.o \
 			$(srcobjdir)/DirectPlay8Peer.o \
-			$(srcobjdir)//EventObject.o \
+			$(srcobjdir)/EventObject.o \
 			$(srcobjdir)/HandleHandlingPool.o \
 			$(srcobjdir)/HostEnumerator.o \
 			$(srcobjdir)/Log.o \
@@ -63,10 +63,11 @@ DPNET_OBJS = $(srcobjdir)/AsyncHandleAllocator.o \
 			$(srcobjdir)/SendQueue.o
 
 ifeq ($(TARGET_OS),Windows_NT)
-DPNET_OBJS += $(srcobjdir)/dpnet.o \
-			./src/dpnet.def
+DPNET_OBJS += $(srcobjdir)/dpnet.o
+DPNET_DEF = ./src/dpnet.def
 else
 DPNET_OBJS += $(srcobjdir)/dpnet_unx.o
+DPNET_DEF =
 endif
 
 TEST_OBJS = $(testsobjdir)/DirectPlay8Address.o \
@@ -103,7 +104,7 @@ $(srcobjdir)/%.o: ./src/%.cpp | $(srcobjdir)
 $(testsobjdir)/%.o: ./tests/%.cpp | $(testsobjdir)
 	$(CXX) $(TEST_CXXFLAGS_ALL) -c -o $@ $<
 
-$(SONAME): $(DPNET_OBJS)
+$(SONAME): $(DPNET_OBJS) $(DPNET_DEF)
 	$(CXX) $(LDFLAGS_ALL) -o $@ $^ $(LIBS)
 
 tests: $(DPNET_OBJS) $(TEST_OBJS)
