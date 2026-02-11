@@ -10,11 +10,13 @@ Rather than being a full reimplementation of the DirectPlay specification, Direc
 
 ## Building
 
-Use the `directplay-lite.sln` solution in Visual Studio 2017 or later.
+Use the `directplay-lite.sln` solution in Visual Studio 2017 or later, or the `Makefile` with MinGW-w64, to build for Windows.
+
+Use the provided `Makefile` to build the library for Linux.
 
 ## Using
 
-DirectPlay Lite can be loaded into a game using the two following methods.
+On Windows, DirectPlay Lite can be loaded into a game using the two following methods.
 
 ### Installation as a COM DLL
 
@@ -32,6 +34,8 @@ The following hook DLLs are currently built:
 New hook DLLs can be built by dumping a list of exported functions from the DLL you want to wrap, producing a stub assembly listing with `mkstubs.pl` and updating `build.bat` to build it.
 
 **NOTE**: Only ONE hook DLL should be used.
+
+On Linux, games can request functionality provided by DirectPlay Lite without any additional setup.
 
 ## Copyright
 
