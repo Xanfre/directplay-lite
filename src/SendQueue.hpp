@@ -87,6 +87,7 @@ class SendQueue
 
 	public:
 		SendQueue(EventObject& signal_on_queue): current(NULL), signal_on_queue(signal_on_queue) {}
+		~SendQueue();
 		
 		/* No copy c'tor. */
 		SendQueue(const SendQueue &src) = delete;

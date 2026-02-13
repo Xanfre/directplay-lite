@@ -28,6 +28,19 @@
 #include "platform.hpp"
 #include "SendQueue.hpp"
 
+SendQueue::~SendQueue()
+{
+	std::list<SendOp*> *queues[] = { &low_queue, &medium_queue, &high_queue };
+	
+	for(int i = 0; i < 3; ++i)
+	{
+		for(auto it = queues[i]->begin(); it != queues[i]->end(); ++it)
+		{
+			delete *it;
+		}
+	}
+}
+
 void SendQueue::send(SendPriority priority, const PacketSerialiser &ps,
 	const struct sockaddr_in *dest_addr,
 	const std::function<void(std::unique_lock<std::mutex>&, HRESULT)> &callback)
