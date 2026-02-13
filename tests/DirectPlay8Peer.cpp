@@ -35,7 +35,7 @@
 #include "../src/DirectPlay8Address.hpp"
 #include "../src/DirectPlay8Peer.hpp"
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #pragma warning(disable: 4065) /* switch statement contains 'default' but no 'case' labels */
 #endif
 
