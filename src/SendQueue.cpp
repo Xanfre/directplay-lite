@@ -206,8 +206,8 @@ SendQueue::SendOp::SendOp(const void *data, size_t data_size,
 	
 	data((const unsigned char*)(data), (const unsigned char*)(data) + data_size),
 	sent_data(0),
-	async_handle(async_handle),
-	callback(callback)
+	callback(callback),
+	async_handle(async_handle)
 {
 	assert((size_t)(dest_addr_size) <= sizeof(this->dest_addr));
 	

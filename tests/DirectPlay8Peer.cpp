@@ -311,7 +311,7 @@ class TestPeer
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				
-				if(t->first_cp_dpnidPlayer == -1)
+				if(t->first_cp_dpnidPlayer == (DPNID) -1)
 				{
 					t->first_cp_dpnidPlayer = cp->dpnidPlayer;
 				}
@@ -323,7 +323,7 @@ class TestPeer
 			{
 				DPNMSG_CONNECT_COMPLETE *cc = (DPNMSG_CONNECT_COMPLETE*)(pMessage);
 				
-				if(t->first_cc_dpnidLocal == -1)
+				if(t->first_cc_dpnidLocal == (DPNID) -1)
 				{
 					t->first_cc_dpnidLocal = cc->dpnidLocal;
 				}
@@ -2067,7 +2067,7 @@ TEST(DirectPlay8Peer, ConnectAsyncCancelAllConnects)
 		return DPN_OK;
 	});
 	
-	ASSERT_EQ(peer1->CancelAsyncOperation(NULL, DPNCANCEL_CONNECT), S_OK);
+	ASSERT_EQ(peer1->CancelAsyncOperation(0, DPNCANCEL_CONNECT), S_OK);
 	
 	Sleep(250);
 	
@@ -2137,7 +2137,7 @@ TEST(DirectPlay8Peer, ConnectAsyncCancelAllOperations)
 		return DPN_OK;
 	});
 	
-	ASSERT_EQ(peer1->CancelAsyncOperation(NULL, DPNCANCEL_ALL_OPERATIONS), S_OK);
+	ASSERT_EQ(peer1->CancelAsyncOperation(0, DPNCANCEL_ALL_OPERATIONS), S_OK);
 	
 	Sleep(250);
 	
@@ -3922,7 +3922,7 @@ TEST(DirectPlay8Peer, AsyncSendToPeerToHost)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				
-				if(host_player_id == -1)
+				if(host_player_id == (DPNID) -1)
 				{
 					host_player_id = cp->dpnidPlayer;
 					cp->pvPlayerContext = (void*)(0x0001);
@@ -4085,7 +4085,7 @@ TEST(DirectPlay8Peer, AsyncSendToPeerToSelf)
 		[&testing, &host_seq, &host_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -4238,7 +4238,7 @@ TEST(DirectPlay8Peer, AsyncSendToPeerToAll)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				
-				if(host_player_id == -1)
+				if(host_player_id == (DPNID) -1)
 				{
 					host_player_id = cp->dpnidPlayer;
 					cp->pvPlayerContext = (void*)(0x0001);
@@ -4418,7 +4418,7 @@ TEST(DirectPlay8Peer, AsyncSendToPeerToAllButSelf)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				
-				if(host_player_id == -1)
+				if(host_player_id == (DPNID) -1)
 				{
 					host_player_id = cp->dpnidPlayer;
 					cp->pvPlayerContext = (void*)(0x0001);
@@ -4581,7 +4581,7 @@ TEST(DirectPlay8Peer, AsyncSendToHostToPeer)
 		[&testing, &host_seq, &host_player_id, &send_handle]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -4738,7 +4738,7 @@ TEST(DirectPlay8Peer, AsyncSendToHostToNone)
 		[&testing, &host_seq, &host_player_id, &send_handle]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -5561,7 +5561,7 @@ TEST(DirectPlay8Peer, AsyncSendCancelPlayerSendsOtherHandle)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				
-				if(host_player_id == -1)
+				if(host_player_id == (DPNID) -1)
 				{
 					host_player_id = cp->dpnidPlayer;
 				}
@@ -5926,7 +5926,7 @@ TEST(DirectPlay8Peer, SyncSendToPeerToHost)
 		[&testing, &host_seq, &host_player_id, &p1_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6057,7 +6057,7 @@ TEST(DirectPlay8Peer, SyncSendToPeerToSelf)
 		[&testing, &host_seq, &host_player_id, &p1_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6193,7 +6193,7 @@ TEST(DirectPlay8Peer, SyncSendToPeerToAll)
 		[&testing, &host_seq, &host_player_id, &p1_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6350,7 +6350,7 @@ TEST(DirectPlay8Peer, SyncSendToPeerToAllButSelf)
 		[&testing, &host_seq, &host_player_id, &p1_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6486,7 +6486,7 @@ TEST(DirectPlay8Peer, SyncSendToHostToNone)
 		[&testing, &host_seq, &host_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6547,7 +6547,7 @@ TEST(DirectPlay8Peer, SetPeerInfoSyncBeforeHost)
 		[&testing, &host_seq, &host_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6689,7 +6689,7 @@ TEST(DirectPlay8Peer, SetPeerInfoSyncAfterPeerConnects)
 		[&testing, &host_seq, &host_player_id, &hostp, &HOST_NAME, &HOST_DATA]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -6884,7 +6884,7 @@ TEST(DirectPlay8Peer, SetPeerInfoSyncBeforeConnect)
 		[&testing, &host_seq, &host_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -7026,7 +7026,7 @@ TEST(DirectPlay8Peer, SetPeerInfoSyncAfterConnect)
 		[&testing, &host_seq, &host_player_id, &p1_player_id, &hostp, &P1_NAME, &P1_DATA]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -7212,7 +7212,7 @@ TEST(DirectPlay8Peer, SetPeerInfoAsyncBeforeHost)
 		[&testing, &host_seq, &host_player_id]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;
@@ -7369,7 +7369,7 @@ TEST(DirectPlay8Peer, SetPeerInfoAsyncAfterPeerConnects)
 		[&testing, &host_seq, &host_player_id, &hostp, &HOST_NAME, &HOST_DATA, &setinfo_handle]
 		(DWORD dwMessageType, PVOID pMessage)
 		{
-			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == -1)
+			if(dwMessageType == DPN_MSGID_CREATE_PLAYER && host_player_id == (DPNID) -1)
 			{
 				DPNMSG_CREATE_PLAYER *cp = (DPNMSG_CREATE_PLAYER*)(pMessage);
 				host_player_id = cp->dpnidPlayer;

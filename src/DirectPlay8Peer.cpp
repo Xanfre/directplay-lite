@@ -1360,7 +1360,7 @@ HRESULT DirectPlay8Peer::CreateGroup(CONST DPN_GROUP_INFO* CONST pdpnGroupInfo, 
 			(const unsigned char*)(pdpnGroupInfo->pvData) + pdpnGroupInfo->dwDataSize);
 	}
 	
-	DPNHANDLE async_handle;
+	DPNHANDLE async_handle = 0;
 	if(!(dwFlags & DPNCREATEGROUP_SYNC))
 	{
 		async_handle = handle_alloc.new_cgroup();
@@ -1577,7 +1577,7 @@ HRESULT DirectPlay8Peer::DestroyGroup(CONST DPNID idGroup, PVOID CONST pvAsyncCo
 		return DPNERR_INVALIDGROUP;
 	}
 	
-	DPNHANDLE async_handle;
+	DPNHANDLE async_handle = 0;
 	if(!(dwFlags & DPNDESTROYGROUP_SYNC))
 	{
 		async_handle = handle_alloc.new_dgroup();
@@ -1726,7 +1726,7 @@ HRESULT DirectPlay8Peer::AddPlayerToGroup(CONST DPNID idGroup, CONST DPNID idCli
 		return DPNERR_PLAYERALREADYINGROUP;
 	}
 	
-	DPNHANDLE async_handle;
+	DPNHANDLE async_handle = 0;
 	if(!(dwFlags & DPNADDPLAYERTOGROUP_SYNC))
 	{
 		async_handle = handle_alloc.new_apgroup();
@@ -1910,7 +1910,7 @@ HRESULT DirectPlay8Peer::RemovePlayerFromGroup(CONST DPNID idGroup, CONST DPNID 
 		return DPNERR_PLAYERNOTINGROUP;
 	}
 	
-	DPNHANDLE async_handle;
+	DPNHANDLE async_handle = 0;
 	if(!(dwFlags & DPNREMOVEPLAYERFROMGROUP_SYNC))
 	{
 		async_handle = handle_alloc.new_rpgroup();
@@ -3576,7 +3576,7 @@ void DirectPlay8Peer::io_peer_send(std::unique_lock<std::mutex> &l, unsigned int
 			
 			sqop->inc_sent_data(s);
 			
-			if(s == d.second)
+			if((size_t) s == d.second)
 			{
 				peer->sq.pop_pending(sqop);
 				
