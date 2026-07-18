@@ -6,7 +6,7 @@ testsobjdir = ./objs/tests
 
 PREFIX ?= /usr
 LIBDIR = $(PREFIX)/bin
-LIBDIR = $(PREFIX)/share/licenses/libdpnet
+LICDIR = $(PREFIX)/share/licenses/libdpnet
 
 TARGET ?=
 TARGET_OS ?= $(OS)
