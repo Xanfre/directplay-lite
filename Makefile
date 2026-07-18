@@ -5,7 +5,7 @@ srcobjdir   = ./objs/dpnet
 testsobjdir = ./objs/tests
 
 PREFIX ?= /usr
-LIBDIR = $(PREFIX)/bin
+LIBDIR = $(PREFIX)/lib
 LICDIR = $(PREFIX)/share/licenses/libdpnet
 
 TARGET ?=
