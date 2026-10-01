@@ -19,6 +19,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
+#ifndef _WIN32
+#include <unicode/errorcode.h>
+#include <unicode/unistr.h>
+#include <unicode/utypes.h>
+#endif
 #include <utility>
 #include <windows.h>
 
@@ -84,6 +89,7 @@ void PacketSerialiser::append_data(const void *data, size_t size)
 
 void PacketSerialiser::append_wstring(const std::wstring &string)
 {
+#ifdef _WIN32
 	size_t string_bytes = string.length() * sizeof(wchar_t);
 	
 	TLVChunk header;
@@ -94,6 +100,19 @@ void PacketSerialiser::append_wstring(const std::wstring &string)
 	sbuf.insert(sbuf.end(), (unsigned char*)(string.data()), (unsigned char*)(string.data()) + string_bytes);
 	
 	((TLVChunk*)(sbuf.data()))->value_length += sizeof(header) + string_bytes;
+#else
+	icu::UnicodeString ustring = icu::UnicodeString::fromUTF32((const UChar32*)(string.data()), string.length());
+	size_t ustring_bytes = ustring.length() * sizeof(char16_t);
+	
+	TLVChunk header;
+	header.type = FIELD_TYPE_WSTRING;
+	header.value_length = ustring_bytes;
+	
+	sbuf.insert(sbuf.end(), (unsigned char*)(&header),       (unsigned char*)(&header + 1));
+	sbuf.insert(sbuf.end(), (unsigned char*)(ustring.getBuffer()), (unsigned char*)(ustring.getBuffer()) + ustring_bytes);
+	
+	((TLVChunk*)(sbuf.data()))->value_length += sizeof(header) + ustring_bytes;
+#endif
 }
 
 void PacketSerialiser::append_guid(const GUID &guid)
@@ -203,12 +222,32 @@ std::wstring PacketDeserialiser::get_wstring(size_t index) const
 		throw Error::TypeMismatch();
 	}
 	
+#ifdef _WIN32
 	if((fields[index]->value_length % sizeof(wchar_t)) != 0)
 	{
 		throw Error::Malformed();
 	}
 	
 	return std::wstring((const wchar_t*)(fields[index]->value), (fields[index]->value_length / sizeof(wchar_t)));
+#else
+	if((fields[index]->value_length % sizeof(char16_t)) != 0)
+	{
+		throw Error::Malformed();
+	}
+	
+	icu::UnicodeString ustring((const char16_t*)(fields[index]->value), (fields[index]->value_length / sizeof(char16_t)));
+	
+	UErrorCode status = U_ZERO_ERROR;
+	int32_t len = ustring.toUTF32(NULL, 0, status);
+	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
+		return L"";
+	
+	std::vector<UChar32> buffer(len);
+	status = U_ZERO_ERROR;
+	ustring.toUTF32(buffer.data(), buffer.size(), status);
+	
+	return !U_FAILURE(status) ? std::wstring(buffer.begin(), buffer.end()) : L"";
+#endif
 }
 
 GUID PacketDeserialiser::get_guid(size_t index) const

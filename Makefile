@@ -41,7 +41,7 @@ CXXFLAGS_ALL = -std=c++17 $(OPTIMIZATION) -Wall -fPIC -fvisibility=hidden -inclu
 TEST_CXXFLAGS_ALL = -std=c++17 $(OPTIMIZATION) -Wall -include include/unix/windows.h -Iinclude -Iinclude/unix -Itests $(CXXFLAGS)
 LDFLAGS_ALL = $(OPTIMIZATION) -shared -Wl,-soname,$(SONAME) -Wl,--no-undefined $(LDFLAGS)
 TEST_LDFLAGS_ALL = $(OPTIMIZATION) $(LDFLAGS)
-LIBS = -lpthread
+LIBS = -lpthread -licuuc
 TEST_LIBS = -lgtest
 endif
 
