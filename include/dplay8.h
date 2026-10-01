@@ -34,7 +34,7 @@ extern "C" {
 
 typedef HRESULT   (WINAPI *PFNDPNMESSAGEHANDLER)(PVOID, DWORD, PVOID);
 typedef DWORD     DPNID, *PDPNID;
-typedef DWORD_PTR DPNHANDLE, *PDPNHANDLE;
+typedef DWORD DPNHANDLE, *PDPNHANDLE;
 
 /*****************************************************************************
  * DirectPlay8 Message Id

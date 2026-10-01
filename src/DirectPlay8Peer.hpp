@@ -26,6 +26,7 @@
 #include <dplay8.h>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 #ifdef _WIN32
 #include <objbase.h>
 #endif
@@ -69,6 +70,9 @@ class DirectPlay8Peer: public IDirectPlay8Peer
 		std::map<DPNHANDLE, HostEnumerator> async_host_enums;
 		std::list<HostEnumerator> sync_host_enums;
 		std::condition_variable host_enum_completed;
+		
+		DPNHANDLE next_buffer_handle;
+		std::unordered_map<DPNHANDLE, void *> buffer_handles;
 		
 		GUID instance_guid;
 		GUID application_guid;
@@ -224,6 +228,9 @@ class DirectPlay8Peer: public IDirectPlay8Peer
 		
 		HRESULT connect_result;
 		std::vector<unsigned char> connect_reply_data;
+		
+		DPNHANDLE add_buffer_handle(void *p);
+		void * get_buffer_handle(DPNHANDLE h);
 		
 		Peer *get_peer_by_peer_id(unsigned int peer_id);
 		Peer *get_peer_by_player_id(DPNID player_id);

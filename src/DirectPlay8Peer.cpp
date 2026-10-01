@@ -71,6 +71,7 @@ DirectPlay8Peer::DirectPlay8Peer(std::atomic<unsigned int> *global_refcount):
 	global_refcount(global_refcount),
 	local_refcount(0),
 	state(STATE_NEW),
+	next_buffer_handle(1),
 	udp_socket(-1),
 	listener_socket(-1),
 	discovery_socket(-1),
@@ -811,7 +812,7 @@ HRESULT DirectPlay8Peer::SendTo(CONST DPNID dpnid, CONST DPN_BUFFER_DESC* CONST 
 			r.pvPlayerContext   = local_player_ctx;
 			r.pReceiveData      = payload_copy;
 			r.dwReceiveDataSize = payload.size();
-			r.hBufferHandle     = (DPNHANDLE)(payload_copy);
+			r.hBufferHandle     = add_buffer_handle((void*)(payload_copy));
 			r.dwReceiveFlags    = (dwFlags & DPNSEND_GUARANTEED ? DPNRECEIVE_GUARANTEED : 0)
 			                    | (dwFlags & DPNSEND_COALESCE   ? DPNRECEIVE_COALESCED  : 0);
 			
@@ -928,7 +929,7 @@ HRESULT DirectPlay8Peer::SendTo(CONST DPNID dpnid, CONST DPN_BUFFER_DESC* CONST 
 				r.pvPlayerContext   = local_player_ctx;
 				r.pReceiveData      = payload_copy;
 				r.dwReceiveDataSize = payload_size;
-				r.hBufferHandle     = (DPNHANDLE)(payload_copy);
+				r.hBufferHandle     = add_buffer_handle((void*)(payload_copy));
 				r.dwReceiveFlags    = (dwFlags & DPNSEND_GUARANTEED ? DPNRECEIVE_GUARANTEED : 0)
 				                    | (dwFlags & DPNSEND_COALESCE   ? DPNRECEIVE_COALESCED  : 0);
 				
@@ -2850,7 +2851,7 @@ HRESULT DirectPlay8Peer::DestroyPeer(CONST DPNID dpnidClient, CONST void* CONST 
 
 HRESULT DirectPlay8Peer::ReturnBuffer(CONST DPNHANDLE hBufferHandle, CONST DWORD dwFlags)
 {
-	unsigned char *buffer = (unsigned char*)(hBufferHandle);
+	unsigned char *buffer = (unsigned char*)(get_buffer_handle(hBufferHandle));
 	delete[] buffer;
 	
 	return S_OK;
@@ -3161,6 +3162,22 @@ HRESULT DirectPlay8Peer::TerminateSession(void* CONST pvTerminateData, CONST DWO
 	}
 	
 	return S_OK;
+}
+
+DPNHANDLE DirectPlay8Peer::add_buffer_handle(void *p)
+{
+	DPNHANDLE buffer_handle = next_buffer_handle;
+	buffer_handles[buffer_handle] = p;
+	
+	next_buffer_handle++;
+	
+	return buffer_handle;
+}
+
+void *DirectPlay8Peer::get_buffer_handle(DPNHANDLE h)
+{
+	auto it = buffer_handles.find(h);
+	return it != buffer_handles.end() ? it->second : NULL;
 }
 
 DirectPlay8Peer::Peer *DirectPlay8Peer::get_peer_by_peer_id(unsigned int peer_id)
@@ -5152,15 +5169,12 @@ void DirectPlay8Peer::handle_message(std::unique_lock<std::mutex> &l, const Pack
 		DPNMSG_RECEIVE r;
 		memset(&r, 0, sizeof(r));
 		
-		static_assert(sizeof(DPNHANDLE) >= sizeof(unsigned char*),
-			"DPNHANDLE must be large enough to take a pointer");
-		
 		r.dwSize            = sizeof(r);
 		r.dpnidSender       = from_player_id;
 		r.pvPlayerContext   = peer->player_ctx;
 		r.pReceiveData      = payload_copy;
 		r.dwReceiveDataSize = payload.second;
-		r.hBufferHandle     = (DPNHANDLE)(payload_copy);
+		r.hBufferHandle     = add_buffer_handle((void*)(payload_copy));
 		// r.dwReceiveFlags
 		
 		l.unlock();
