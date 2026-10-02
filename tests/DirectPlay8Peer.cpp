@@ -13409,7 +13409,7 @@ TEST(DirectPlay8Peer, SendToGroupSelf)
 	peer2.expect_begin();
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
@@ -13567,7 +13567,7 @@ TEST(DirectPlay8Peer, SendToGroupSelfNoLoopback)
 	peer2.expect_begin();
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
@@ -13727,7 +13727,7 @@ TEST(DirectPlay8Peer, SendToGroupPeer)
 	});
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
@@ -13886,7 +13886,7 @@ TEST(DirectPlay8Peer, SendToGroupPeerNoLoopback)
 	});
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
@@ -14058,7 +14058,7 @@ TEST(DirectPlay8Peer, SendToGroupPeerAndSelf)
 	});
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
@@ -14225,7 +14225,7 @@ TEST(DirectPlay8Peer, SendToGroupPeerAndSelfNoLoopback)
 	});
 	
 	/* Don't care what we send, so long as it goes to the right peers. */
-	int blah;
+	int blah = 0;
 	DPN_BUFFER_DESC bd = { sizeof(blah), (BYTE*)(&blah) };
 	
 	ASSERT_EQ(peer1->SendTo(
