@@ -70,15 +70,30 @@ static const int AUTO_PORT_MAX = 65535;
 DirectPlay8Peer::DirectPlay8Peer(std::atomic<unsigned int> *global_refcount):
 	global_refcount(global_refcount),
 	local_refcount(0),
+	message_handler(NULL),
 	state(STATE_NEW),
 	next_buffer_handle(1),
+	max_players(0),
+	local_ip(0),
+	local_port(0),
 	udp_socket(-1),
 	listener_socket(-1),
 	discovery_socket(-1),
 	worker_pool(NULL),
-	udp_sq(udp_socket_event)
+	udp_sq(udp_socket_event),
+	local_player_id(0),
+	local_player_ctx(NULL),
+	next_player_id(0),
+	host_player_id(0),
+	next_peer_id(0),
+	connect_ctx(NULL),
+	connect_handle(0),
+	connect_result(S_OK)
 {
 	AddRef();
+	memset(&instance_guid, 0, sizeof(instance_guid));
+	memset(&application_guid, 0, sizeof(application_guid));
+	memset(&service_provider, 0, sizeof(service_provider));
 }
 
 DirectPlay8Peer::~DirectPlay8Peer()
@@ -6150,8 +6165,21 @@ HRESULT DirectPlay8Peer::dispatch_destroy_group(std::unique_lock<std::mutex> &l,
 }
 
 DirectPlay8Peer::Peer::Peer(enum PeerState state, int sock, uint32_t ip, uint16_t port):
-	state(state), sock(sock), ip(ip), port(port), recv_busy(false), recv_buf_cur(0), events(0), sq(event), send_open(true), next_ack_id(1)
-{}
+	state(state),
+	sock(sock),
+	ip(ip),
+	port(port),
+	player_id(0),
+	player_ctx(NULL),
+	recv_busy(false),
+	recv_buf_cur(0),
+	events(0),
+	sq(event),
+	send_open(true),
+	next_ack_id(1)
+{
+	memset(recv_buf, 0, sizeof(recv_buf));
+}
 
 bool DirectPlay8Peer::Peer::enable_events(long events)
 {
