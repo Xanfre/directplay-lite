@@ -13,8 +13,10 @@ TARGET_OS ?= $(OS)
 
 ifeq ($(TARGET_OS),Windows_NT)
 SONAME ?= dpnet.dll
+TESTBIN = test_dpnet.exe
 else
 SONAME ?= libdpnet.so.0
+TESTBIN = test_dpnet
 endif
 
 ifeq ($(TARGET),)
@@ -41,13 +43,21 @@ CXXFLAGS_ALL = -std=c++17 $(OPTIMIZATION) -Wall -fPIC -fvisibility=hidden -inclu
 TEST_CXXFLAGS_ALL = -std=c++17 $(OPTIMIZATION) -Wall -include include/unix/windows.h -Iinclude -Iinclude/unix -Itests $(CXXFLAGS)
 LDFLAGS_ALL = $(OPTIMIZATION) -shared -Wl,-soname,$(SONAME) -Wl,--no-undefined $(LDFLAGS)
 TEST_LDFLAGS_ALL = $(OPTIMIZATION) $(LDFLAGS)
-LIBS = -lpthread -licuuc
+LIBS = -lpthread
 TEST_LIBS = -lgtest
 endif
 
 ifeq ($(DEBUG),)
 LDFLAGS_ALL += -s
 TEST_LDFLAGS_ALL += -s
+endif
+
+ifneq ($(USE_ICONV),)
+CXXFLAGS_ALL += -DUSE_ICONV
+TEST_CXXFLAGS_ALL += -DUSE_ICONV
+ifeq ($(TARGET_OS),Windows_NT)
+LIBS += -liconv
+endif
 endif
 
 DPNET_OBJS = $(srcobjdir)/AsyncHandleAllocator.o \
@@ -90,7 +100,7 @@ install: $(SONAME)
 
 clean:
 	rm -rf $(objdir)
-	rm -f $(SONAME) test_dpnet
+	rm -f $(SONAME) $(TESTBIN)
 
 $(srcobjdir):
 	mkdir -p $@
@@ -108,5 +118,5 @@ $(SONAME): $(DPNET_OBJS) $(DPNET_DEF)
 	$(CXX) $(LDFLAGS_ALL) -o $@ $^ $(LIBS)
 
 tests: $(DPNET_OBJS) $(TEST_OBJS)
-	$(CXX) $(TEST_LDFLAGS_ALL) -o test_dpnet  $^ $(LIBS) $(TEST_LIBS)
+	$(CXX) $(TEST_LDFLAGS_ALL) -o $(TESTBIN)  $^ $(LIBS) $(TEST_LIBS)
 

@@ -16,14 +16,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+#ifdef USE_ICONV
+#include <iconv.h>
+#endif
+#include <stdexcept>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
-#ifndef _WIN32
-#include <unicode/errorcode.h>
-#include <unicode/unistr.h>
-#include <unicode/utypes.h>
-#endif
 #include <utility>
 #include <windows.h>
 
@@ -45,6 +44,19 @@ PacketSerialiser::PacketSerialiser(uint32_t type)
 	header.value_length = 0;
 	
 	sbuf.insert(sbuf.begin(), (unsigned char*)(&header), (unsigned char*)(&header + 1));
+
+#ifdef USE_ICONV
+	convd = iconv_open("UTF-16LE", "wchar_t");
+	if (convd == (iconv_t)(-1))
+		throw std::runtime_error("Failed to get iconv descriptor");
+#endif
+}
+
+PacketSerialiser::~PacketSerialiser()
+{
+#ifdef USE_ICONV
+	iconv_close(convd);
+#endif
 }
 
 std::pair<const void*, size_t> PacketSerialiser::raw_packet() const
@@ -89,30 +101,46 @@ void PacketSerialiser::append_data(const void *data, size_t size)
 
 void PacketSerialiser::append_wstring(const std::wstring &string)
 {
-#ifdef _WIN32
+#ifdef USE_ICONV
+	/* We are converting to UTF-16, so every code point can take either 2 or 4 bytes. */
+	std::vector<unsigned char> buffer(string.length() * 4);
+	
+	size_t string_bytes = 0;
+
+	if (buffer.size() > 0)
+	{
+		char *inbuf = (char*)(string.data());
+		size_t inbytesleft = string.length() * sizeof(wchar_t);
+		char *outbuf = (char*)(buffer.data());
+		size_t outbytesleft = buffer.size();
+		
+		if (iconv(convd, &inbuf, &inbytesleft, &outbuf, &outbytesleft) != (size_t)(-1))
+		{
+			string_bytes = buffer.size() - outbytesleft;
+		}
+
+		/* Flush for next conversion. */
+		iconv(convd, NULL, NULL, &outbuf, &outbytesleft);
+	}
+#else
 	size_t string_bytes = string.length() * sizeof(wchar_t);
+#endif
 	
 	TLVChunk header;
 	header.type = FIELD_TYPE_WSTRING;
 	header.value_length = string_bytes;
 	
 	sbuf.insert(sbuf.end(), (unsigned char*)(&header),       (unsigned char*)(&header + 1));
-	sbuf.insert(sbuf.end(), (unsigned char*)(string.data()), (unsigned char*)(string.data()) + string_bytes);
+	if (string_bytes > 0)
+	{
+#ifdef USE_ICONV
+		sbuf.insert(sbuf.end(), (unsigned char*)(buffer.data()), (unsigned char*)(buffer.data()) + string_bytes);
+#else
+		sbuf.insert(sbuf.end(), (unsigned char*)(string.data()), (unsigned char*)(string.data()) + string_bytes);
+#endif
+	}
 	
 	((TLVChunk*)(sbuf.data()))->value_length += sizeof(header) + string_bytes;
-#else
-	icu::UnicodeString ustring = icu::UnicodeString::fromUTF32((const UChar32*)(string.data()), string.length());
-	size_t ustring_bytes = ustring.length() * sizeof(char16_t);
-	
-	TLVChunk header;
-	header.type = FIELD_TYPE_WSTRING;
-	header.value_length = ustring_bytes;
-	
-	sbuf.insert(sbuf.end(), (unsigned char*)(&header),       (unsigned char*)(&header + 1));
-	sbuf.insert(sbuf.end(), (unsigned char*)(ustring.getBuffer()), (unsigned char*)(ustring.getBuffer()) + ustring_bytes);
-	
-	((TLVChunk*)(sbuf.data()))->value_length += sizeof(header) + ustring_bytes;
-#endif
 }
 
 void PacketSerialiser::append_guid(const GUID &guid)
@@ -153,6 +181,19 @@ PacketDeserialiser::PacketDeserialiser(const void *serialised_packet, size_t pac
 		at           += sizeof(TLVChunk) + field->value_length;
 		value_remain -= sizeof(TLVChunk) + field->value_length;
 	}
+
+#ifdef USE_ICONV
+	convd = iconv_open("wchar_t", "UTF-16LE");
+	if (convd == (iconv_t)(-1))
+		throw std::runtime_error("Failed to get iconv descriptor");
+#endif
+}
+
+PacketDeserialiser::~PacketDeserialiser()
+{
+#ifdef USE_ICONV
+	iconv_close(convd);
+#endif
 }
 
 uint32_t PacketDeserialiser::packet_type() const
@@ -222,31 +263,43 @@ std::wstring PacketDeserialiser::get_wstring(size_t index) const
 		throw Error::TypeMismatch();
 	}
 	
-#ifdef _WIN32
+#ifdef USE_ICONV
+	if((fields[index]->value_length % sizeof(char16_t)) != 0)
+	{
+		throw Error::Malformed();
+	}
+	
+	/* We are converting to the native wchar_t. This is dependent on the OS, but is generally UTF-32 or UTF-16. */
+	static_assert(sizeof(wchar_t) <= 4, "wchar_t must be at most 4 bytes");
+	std::vector<unsigned char> buffer((size_t)(fields[index]->value_length) / sizeof(char16_t) * 4);
+	
+	if (buffer.size() == 0)
+		return L"";
+	
+	char *inbuf = (char*)(fields[index]->value);
+	size_t inbytesleft = (size_t)(fields[index]->value_length);
+	char *outbuf = (char*)(buffer.data());
+	size_t outbytesleft = buffer.size();
+	
+	size_t converted = iconv(convd, &inbuf, &inbytesleft, &outbuf, &outbytesleft);
+	size_t string_bytes = buffer.size() - outbytesleft;
+
+	/* Flush for next conversion. */
+	iconv(convd, NULL, NULL, &outbuf, &outbytesleft);
+
+	if (converted == (size_t)(-1))
+	{
+		throw Error::Malformed();
+	}
+	
+	return std::wstring((const wchar_t*)(buffer.data()), string_bytes / sizeof(wchar_t));
+#else
 	if((fields[index]->value_length % sizeof(wchar_t)) != 0)
 	{
 		throw Error::Malformed();
 	}
 	
 	return std::wstring((const wchar_t*)(fields[index]->value), (fields[index]->value_length / sizeof(wchar_t)));
-#else
-	if((fields[index]->value_length % sizeof(char16_t)) != 0)
-	{
-		throw Error::Malformed();
-	}
-	
-	icu::UnicodeString ustring((const char16_t*)(fields[index]->value), (fields[index]->value_length / sizeof(char16_t)));
-	
-	UErrorCode status = U_ZERO_ERROR;
-	int32_t len = ustring.toUTF32(NULL, 0, status);
-	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
-		return L"";
-	
-	std::vector<UChar32> buffer(len);
-	status = U_ZERO_ERROR;
-	ustring.toUTF32(buffer.data(), buffer.size(), status);
-	
-	return !U_FAILURE(status) ? std::wstring(buffer.begin(), buffer.end()) : L"";
 #endif
 }
 

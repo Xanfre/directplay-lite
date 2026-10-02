@@ -19,6 +19,9 @@
 #ifndef DPLITE_PACKET_HPP
 #define DPLITE_PACKET_HPP
 
+#ifdef USE_ICONV
+#include <iconv.h>
+#endif
 #include <stdexcept>
 #include <stdint.h>
 #include <stdlib.h>
@@ -42,9 +45,13 @@ class PacketSerialiser
 {
 	private:
 		std::vector<unsigned char> sbuf;
+#ifdef USE_ICONV
+		iconv_t convd;
+#endif
 		
 	public:
 		PacketSerialiser(uint32_t type);
+		~PacketSerialiser();
 		
 		std::pair<const void*, size_t> raw_packet() const;
 		
@@ -60,6 +67,9 @@ class PacketDeserialiser
 	private:
 		const TLVChunk *header;
 		std::vector<const TLVChunk*> fields;
+#ifdef USE_ICONV
+		iconv_t convd;
+#endif
 		
 	public:
 		class Error: public std::runtime_error
@@ -75,6 +85,7 @@ class PacketDeserialiser
 		};
 		
 		PacketDeserialiser(const void *serialised_packet, size_t packet_size);
+		~PacketDeserialiser();
 		
 		uint32_t packet_type() const;
 		size_t num_fields() const;
