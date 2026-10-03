@@ -96,8 +96,9 @@ int create_udp_socket(uint32_t ipaddr, uint16_t port)
 	
 	if(bind(sock, (struct sockaddr*)(&addr), sizeof(addr)) == -1)
 	{
+		DWORD err = WSAGetLastError();
 		log_printf("bind() failed for UDP socket: %s (addr=%08x, port=%d)",
-			strerror(errno), ipaddr, port);
+			SOCKET_STRERROR(err), ipaddr, port);
 		closesocket(sock);
 		return -1;
 	}
@@ -151,8 +152,9 @@ int create_listener_socket(uint32_t ipaddr, uint16_t port)
 	
 	if(bind(sock, (struct sockaddr*)(&addr), sizeof(addr)) == -1)
 	{
+		DWORD err = WSAGetLastError();
 		log_printf("bind() failed for listener socket: %s (addr=%08x, port=%d)",
-			strerror(errno), ipaddr, port);
+			SOCKET_STRERROR(err), ipaddr, port);
 		closesocket(sock);
 		return -1;
 	}
@@ -230,8 +232,9 @@ int create_client_socket(uint32_t local_ipaddr, uint16_t local_port)
 	
 	if(bind(sock, (struct sockaddr*)(&l_addr), sizeof(l_addr)) == -1)
 	{
+		DWORD err = WSAGetLastError();
 		log_printf("bind() failed for client socket: %s (addr=%08x, port=%d)",
-			strerror(errno), local_ipaddr, local_port);
+			SOCKET_STRERROR(err), local_ipaddr, local_port);
 		closesocket(sock);
 		return -1;
 	}
